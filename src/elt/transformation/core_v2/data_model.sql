@@ -7,7 +7,7 @@ SELECT
 	column_name,
 	data_type
 FROM information_schema.columns
-WHERE table_schema = 'core'
+WHERE table_schema = 'public'
 ORDER BY table_name, ordinal_position;
 
 -----------------------------------------------
@@ -36,7 +36,7 @@ LEFT JOIN information_schema.key_column_usage kcu
 LEFT JOIN information_schema.table_constraints tc
     ON kcu.constraint_name = tc.constraint_name
     AND kcu.table_schema = tc.table_schema
-WHERE c.table_schema = 'core'
+-- WHERE c.table_schema = 'core'
 ORDER BY c.table_name, c.ordinal_position;
 
 --

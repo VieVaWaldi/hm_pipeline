@@ -80,7 +80,8 @@
   "openaire_dump": {
     "path_raw": "/vast/lu72hip/data/pile/openaire_2025_12_01_dump",
     "path_duck": "/vast/lu72hip/data/duckdb/sources/openaire_raw.duckdb",
-    "path_duck_staging": "/vast/lu72hip/data/duckdb/sources/openaire_staging.duckdb"
+    "path_duck_staging": "/vast/lu72hip/data/duckdb/sources/openaire_staging.duckdb",
+    "path_duck_staging_2": "/vast/lu72hip/data/duckdb/sources/openaire_staging_2.duckdb"
   },
   "openalex_dump": {
     "path_raw": "/vast/lu72hip/data/pile/openalex_2026_02_03_dump",

@@ -31,7 +31,9 @@ setup_logging("staging", "openaire")
 
 config = get_query_config()["openaire_dump"]
 RAW_DB = Path(config["path_duck"])
-STAGING_DB = Path(config["path_duck_staging"])
+STAGING_DB = Path(
+    config["path_duck_staging_2"]
+)  # IMPORTANT i changed this for the pids temp
 
 ensure_path_exists(STAGING_DB)
 
@@ -80,8 +82,9 @@ con.execute(
             x -> x IS NOT NULL
         )                                                                   AS alternativeNames,
         country.code                                                        AS countryCode,
-        (list_filter(pids, p -> p.scheme = 'ROR'))[1].value                AS rorId,
-        (list_filter(pids, p -> p.scheme = 'Wikidata'))[1].value           AS wikiId
+        (list_filter(pids, p -> p.scheme = 'ROR'))[1].value                 AS rorId,
+        (list_filter(pids, p -> p.scheme = 'Wikidata'))[1].value            AS wikiId
+        pids                                                                AS pids
     FROM raw.organization
 """
 )

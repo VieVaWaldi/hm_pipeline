@@ -6,11 +6,11 @@
 #SBATCH --mem=200G
 #SBATCH --time=12:00:00
 #SBATCH --partition=fat,gpu,standard
-#SBATCH --output=/vast/lu72hip/logs/openaire_staging_%j.log
+#SBATCH --output=/work/lu72hip/logs/openaire_staging_%j.log
 #SBATCH --mail-user=walter.ehrenberger@uni-jena.de
 #SBATCH --mail-type=ALL
 
-mkdir -p /vast/lu72hip/logs
+mkdir -p /work/lu72hip/logs
 
 cd /home/lu72hip/DIGICHer/dh_pipeline || exit
 source venv/bin/activate

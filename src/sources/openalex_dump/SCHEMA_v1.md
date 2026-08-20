@@ -3,7 +3,7 @@
 ## First Dump | Published 03.02.2026 | without xpac
 
 - **Docs**: https://docs.openalex.org/download-all-data/snapshot-data-format
-- **Location**: `/vast/lu72hip/data/pile/openalex_2026_02_03_dump/`
+- **Location**: `/work/lu72hip/data/pile/openalex_2026_02_03_dump/`
 - **Total size**: ~626 GB compressed (works dominate)
 - **Format**: Hive-partitioned directories (`updated_date=YYYY-MM-DD/part_XXXX.gz`), newline-delimited JSON, gzip-compressed
 
@@ -46,7 +46,7 @@ Complete entity list with exact row counts (counted from disk):
 ```python
 con.execute("""
     SELECT * FROM read_json(
-        '/vast/.../openalex_2026_02_03_dump/works/**/*.gz',
+        '/work/.../openalex_2026_02_03_dump/works/**/*.gz',
         format='newline_delimited',
         compression='gzip',
         hive_partitioning=true,
@@ -555,7 +555,7 @@ Tiny — under 1K rows each. Single glob, done in seconds.
 con.execute(f"""
     CREATE TABLE {entity} AS
     SELECT * FROM read_json(
-        '/vast/.../openalex_2026_02_03_dump/{entity}/**/*.gz',
+        '/work/.../openalex_2026_02_03_dump/{entity}/**/*.gz',
         format='newline_delimited', compression='gzip',
         hive_partitioning=true, union_by_name=true
     )
@@ -576,7 +576,7 @@ Same glob pattern. Feasible as a single call; monitor memory. COPY TO Parquet re
 ```sql
 COPY (
     SELECT * FROM read_json(
-        '/vast/.../works/**/*.gz',
+        '/work/.../works/**/*.gz',
         format='newline_delimited', compression='gzip',
         hive_partitioning=true, union_by_name=true
     )

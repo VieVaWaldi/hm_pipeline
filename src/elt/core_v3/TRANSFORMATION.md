@@ -5,7 +5,7 @@ Script: `src/elt/core_v3/transformation.py`
 
 ## General
 
-The core_v3 duckdb (`/vast/lu72hip/data/duckdb/core/core_v3.duckdb`) currently contains the OpenAire staging
+The core_v3 duckdb (`/work/lu72hip/data/duckdb/core/core_v3.duckdb`) currently contains the OpenAire staging
 tables (`organization`, `project`, `work`, `relation`) plus `topic` and `relation_topic` from TF-IDF enrichment.
 
 This transformation adds columns to existing tables — it does not create new tables.
@@ -30,7 +30,7 @@ Only organizations that already have a `rorId` will be updated (~subset of 448K 
 
 ### Source
 
-`/vast/lu72hip/data/duckdb/sources/ror_raw.duckdb` — table `ror`
+`/work/lu72hip/data/duckdb/sources/ror_raw.duckdb` — table `ror`
 
 ROR schema reference: `src/sources/ror_dump/documentation/dump_v2.3/1_SCHEMA.md`
 
@@ -94,7 +94,7 @@ The final join against `core.relation` yields **~193K enrichable rows per direct
 
 ### Source
 
-`/vast/lu72hip/data/duckdb/sources/cordis_raw.duckdb` — tables `project`, `institution`, `j_project_institution`
+`/work/lu72hip/data/duckdb/sources/cordis_raw.duckdb` — tables `project`, `institution`, `j_project_institution`
 
 Cordis schema reference: see column lists in `src/sources/cordis/eda.ipynb`
 
@@ -113,7 +113,7 @@ because it has the best coverage (55.5%) and correctly represents "what the EC p
 
 ```sql
 -- Attach cordis
-ATTACH '/vast/lu72hip/data/duckdb/sources/cordis_raw.duckdb' AS cordis (READ_ONLY);
+ATTACH '/work/lu72hip/data/duckdb/sources/cordis_raw.duckdb' AS cordis (READ_ONLY);
 
 ALTER TABLE relation ADD COLUMN cordis_ec_contribution DOUBLE;
 ALTER TABLE relation ADD COLUMN cordis_type            VARCHAR;

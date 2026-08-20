@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Dict, Any
 
-ROR_DB = Path("/vast/lu72hip/data/duckdb/sources/ror_raw.duckdb")
+ROR_DB = Path("/work/lu72hip/data/duckdb/sources/ror_raw.duckdb")
 
 
 def get_table_schema(con: duckdb.DuckDBPyConnection, table: str) -> Dict[str, Any]:
@@ -29,8 +29,7 @@ def analyze_nested_field(
 
     # Get length distribution for LIST fields
     if "LIST" in field.upper():
-        lengths = con.execute(
-            f"""
+        lengths = con.execute(f"""
             SELECT 
                 len({field}) as length,
                 COUNT(*) as count
@@ -39,19 +38,16 @@ def analyze_nested_field(
             GROUP BY length
             ORDER BY count DESC
             LIMIT 10
-        """
-        ).df()
+        """).df()
 
         # Get a few non-null samples
-        samples = con.execute(
-            f"""
+        samples = con.execute(f"""
             SELECT {field}
             FROM organizations
             WHERE {field} IS NOT NULL 
                 AND len({field}) > 0
             LIMIT 3
-        """
-        ).fetchall()
+        """).fetchall()
 
         return {
             "length_distribution": lengths.to_dict("records"),
@@ -101,13 +97,11 @@ def main():
             print(f"\n{col_name} ({col_type}):")
 
             # Count non-null
-            non_null = con.execute(
-                f"""
+            non_null = con.execute(f"""
                 SELECT COUNT(*) 
                 FROM {table_name} 
                 WHERE {col_name} IS NOT NULL
-            """
-            ).fetchone()[0]
+            """).fetchone()[0]
 
             total = con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
             pct = (non_null / total * 100) if total > 0 else 0
@@ -119,14 +113,12 @@ def main():
                 print(f"  Structure analysis:")
 
                 # Get a sample to show the actual structure
-                sample = con.execute(
-                    f"""
+                sample = con.execute(f"""
                     SELECT {col_name}
                     FROM {table_name}
                     WHERE {col_name} IS NOT NULL
                     LIMIT 1
-                """
-                ).fetchone()
+                """).fetchone()
 
                 if sample and sample[0]:
                     print(f"  Example value:")
@@ -137,8 +129,7 @@ def main():
                 # For lists, show length distribution
                 if "LIST" in col_type:
                     try:
-                        lengths = con.execute(
-                            f"""
+                        lengths = con.execute(f"""
                             SELECT 
                                 len({col_name}) as length,
                                 COUNT(*) as count
@@ -147,8 +138,7 @@ def main():
                             GROUP BY length
                             ORDER BY count DESC
                             LIMIT 5
-                        """
-                        ).df()
+                        """).df()
 
                         if not lengths.empty:
                             print(f"  Length distribution:")
@@ -169,8 +159,7 @@ def main():
     print("\n1. ORGANIZATION TYPES")
     print("-" * 80)
     # Get unique type combinations
-    type_combos = con.execute(
-        """
+    type_combos = con.execute("""
         SELECT 
             list_sort(types) as type_combo,
             COUNT(*) as count
@@ -178,22 +167,19 @@ def main():
         GROUP BY type_combo
         ORDER BY count DESC
         LIMIT 20
-    """
-    ).df()
+    """).df()
     print(type_combos.to_string(index=False))
 
     print("\n\n2. RELATIONSHIP TYPES")
     print("-" * 80)
     # Sample relationships to understand structure
-    rel_sample = con.execute(
-        """
+    rel_sample = con.execute("""
         SELECT relationships
         FROM organizations
         WHERE relationships IS NOT NULL 
             AND len(relationships) > 0
         LIMIT 5
-    """
-    ).fetchall()
+    """).fetchall()
 
     print("Sample relationships:")
     for i, (rels,) in enumerate(rel_sample, 1):
@@ -204,15 +190,13 @@ def main():
     print("\n\n3. EXTERNAL ID SYSTEMS")
     print("-" * 80)
     # Get all unique external ID types
-    ext_id_sample = con.execute(
-        """
+    ext_id_sample = con.execute("""
         SELECT external_ids
         FROM organizations
         WHERE external_ids IS NOT NULL 
             AND len(external_ids) > 0
         LIMIT 10
-    """
-    ).fetchall()
+    """).fetchall()
 
     id_types = set()
     for (ext_ids,) in ext_id_sample:
@@ -224,15 +208,13 @@ def main():
     print("\n\n4. NAME TYPES")
     print("-" * 80)
     # Sample name structures
-    name_sample = con.execute(
-        """
+    name_sample = con.execute("""
         SELECT names
         FROM organizations
         WHERE names IS NOT NULL 
             AND len(names) > 1
         LIMIT 3
-    """
-    ).fetchall()
+    """).fetchall()
 
     print("Organizations with multiple names:")
     for i, (names,) in enumerate(name_sample, 1):

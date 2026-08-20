@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../src"))
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
-CORE_V3_DB = "/vast/lu72hip/data/duckdb/core/core_v3.duckdb"
+CORE_V3_DB = "/work/lu72hip/data/duckdb/core/core_v3.duckdb"
 TOPICS_CSV = "data/topics/openalex_topic_mapping.csv"
 N_TOPICS = 10
 N_ROWS = 20
@@ -35,10 +35,14 @@ logging.info(f"Temp DB: {tmp_db}")
 
 con = duckdb.connect(tmp_db)
 con.execute(f"ATTACH '{CORE_V3_DB}' AS src (READ_ONLY)")
-con.execute(f"CREATE TABLE project AS SELECT * FROM src.project WHERE summary IS NOT NULL LIMIT {N_ROWS}")
+con.execute(
+    f"CREATE TABLE project AS SELECT * FROM src.project WHERE summary IS NOT NULL LIMIT {N_ROWS}"
+)
 con.execute(f"CREATE TABLE work AS SELECT * FROM src.work LIMIT {N_ROWS}")
 con.execute("DETACH src")
-logging.info(f"project rows: {con.execute('SELECT count(*) FROM project').fetchone()[0]}")
+logging.info(
+    f"project rows: {con.execute('SELECT count(*) FROM project').fetchone()[0]}"
+)
 logging.info(f"work rows:    {con.execute('SELECT count(*) FROM work').fetchone()[0]}")
 con.close()
 
@@ -47,7 +51,9 @@ con.close()
 # ---------------------------------------------------------------------------
 from elt.core_v3.model.core_orm_model import Base, Topic, CREATE_RELATION_TOPIC_SQL
 
-engine = create_engine(f"duckdb:///{tmp_db}", poolclass=NullPool, implicit_returning=False)
+engine = create_engine(
+    f"duckdb:///{tmp_db}", poolclass=NullPool, implicit_returning=False
+)
 Base.metadata.create_all(engine, tables=[Topic.__table__], checkfirst=True)
 engine.dispose()
 
@@ -64,16 +70,28 @@ con = duckdb.connect(tmp_db)
 
 records = [
     (
-        int(row["topic_id"]), row["subfield_id"], row["field_id"], row["domain_id"],
-        row["topic_name"], row["subfield_name"], row["field_name"], row["domain_name"],
-        row["keywords"], row["summary"], row["wikipedia_url"], None, None,
+        int(row["topic_id"]),
+        row["subfield_id"],
+        row["field_id"],
+        row["domain_id"],
+        row["topic_name"],
+        row["subfield_name"],
+        row["field_name"],
+        row["domain_name"],
+        row["keywords"],
+        row["summary"],
+        row["wikipedia_url"],
+        None,
+        None,
     )
     for _, row in df.iterrows()
 ]
 con.executemany(
     "INSERT INTO topic VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", records
 )
-logging.info(f"Seeded {con.execute('SELECT count(*) FROM topic').fetchone()[0]} topics.")
+logging.info(
+    f"Seeded {con.execute('SELECT count(*) FROM topic').fetchone()[0]} topics."
+)
 
 # ---------------------------------------------------------------------------
 # 4. Build minimal TF-IDF model (topics only, no spacy for login-node speed)

@@ -6,14 +6,14 @@
 #SBATCH --mem=4G
 #SBATCH --time=00:30:00
 #SBATCH --partition=standard
-#SBATCH --output=/vast/lu72hip/logs/ror_download_%j.log
+#SBATCH --output=/work/lu72hip/logs/ror_download_%j.log
 #SBATCH --mail-user=walter.ehrenberger@uni-jena.de
 #SBATCH --mail-type=ALL
 
 # --- Path Configuration ---
-BASE_DIR="/vast/lu72hip/data/pile"
+BASE_DIR="/work/lu72hip/data/pile"
 DOWNLOAD_DIR="${BASE_DIR}/ror_2026_02_24"
-LOG_DIR="/vast/lu72hip/logs"
+LOG_DIR="/work/lu72hip/logs"
 
 # ROR v2.3 February 2026 record
 ZENODO_RECORD="18761279"

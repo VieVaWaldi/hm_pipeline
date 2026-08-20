@@ -5,7 +5,7 @@ This document describes how to create datamodel core_v3 in which OpenAire shall 
 Core_v4 will be the harmonization between OpenAlex, OpenAire and ROR. Later we will be able to reuse ELT procedures we wrote for OpenAire.
 But for now we want the surgical minimal subset of data from OpenAire, which enables HeritageMonitor to give a real picture of CH research.
 
-Core_v3 is saved as a duckdb file in `/vast/lu72hip/data/duckdb/core/core_v3.duckdb`.
+Core_v3 is saved as a duckdb file in `/work/lu72hip/data/duckdb/core/core_v3.duckdb`.
 
 ## High Level Plan
 

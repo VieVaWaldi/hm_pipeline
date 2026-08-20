@@ -5,7 +5,7 @@ This document explains the source data schema as available in the dump.
 ## First Dump | Published 01.12.2025 | v10.6.0
 
 - **Docs**: https://graph.openaire.eu/docs/data-model/ | https://zenodo.org/records/14608526
-- **Location**: `/vast/lu72hip/data/pile/openaire_2025_12_01_dump/`
+- **Location**: `/work/lu72hip/data/pile/openaire_2025_12_01_dump/`
 - **Total size**: ~309 GB compressed
 - **Format**: Each entity is a directory of `part-XXXXX.json.gz` files (newline-delimited JSON, gzip-compressed).
 - **Data model**: https://graph.openaire.eu/docs/data-model/
@@ -35,7 +35,7 @@ This is the complete list of all entity types in the dump. All are present as di
 DuckDB reads `.json.gz` parts directly:
 ```python
 con.execute("""
-    SELECT * FROM read_json('/vast/.../openaire_2025_12_01_dump/organization/*.json.gz',
+    SELECT * FROM read_json('/work/.../openaire_2025_12_01_dump/organization/*.json.gz',
         format='newline_delimited', compression='gzip', union_by_name=true)
 """)
 ```
@@ -224,7 +224,7 @@ Single `read_json` glob. Schema is simple and fully flat.
 ```python
 con.execute("""
     CREATE TABLE organizations AS
-    SELECT * FROM read_json('/vast/.../openaire_2025_12_01_dump/organization/*.json.gz',
+    SELECT * FROM read_json('/work/.../openaire_2025_12_01_dump/organization/*.json.gz',
         format='newline_delimited', compression='gzip', union_by_name=true)
 """)
 ```
@@ -236,7 +236,7 @@ Same pattern for `project/`, `datasource/`, `communities_infrastructures/`.
 All share the same schema — can be loaded uniformly. Single glob per entity type. Use `union_by_name=true` for the nullable JSON-typed fields. Consider selecting only needed columns to avoid 9 sparse JSON fields.
 
 ```sql
-SELECT * FROM read_json('/vast/.../openaire_2025_12_01_dump/publication/*.json.gz',
+SELECT * FROM read_json('/work/.../openaire_2025_12_01_dump/publication/*.json.gz',
     format='newline_delimited', compression='gzip', union_by_name=true)
 ```
 
@@ -245,7 +245,7 @@ SELECT * FROM read_json('/vast/.../openaire_2025_12_01_dump/publication/*.json.g
 Filter to useful relation types only**
 ```sql
 COPY (
-    SELECT * FROM read_json('/vast/.../openaire_2025_12_01_dump/relation/*.json.gz',
+    SELECT * FROM read_json('/work/.../openaire_2025_12_01_dump/relation/*.json.gz',
         format='newline_delimited', compression='gzip', union_by_name=true)
     WHERE relType.type IN ('affiliation', 'outcome', 'citation', 'participation')
 ) TO 'relations_filtered.parquet' (FORMAT parquet, COMPRESSION zstd)

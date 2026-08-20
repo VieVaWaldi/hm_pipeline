@@ -6,13 +6,13 @@
 #SBATCH --mem=64G
 #SBATCH --time=2-00:00:00
 #SBATCH --partition=standard
-#SBATCH --output=/vast/lu72hip/logs/openaire_dowload_%j.log
+#SBATCH --output=/work/lu72hip/logs/openaire_dowload_%j.log
 #SBATCH --mail-user=walter.ehrenberger@uni-jena.de
 #SBATCH --mail-type=ALL
 
 # --- Path Configuration ---
-BASE_DIR="/vast/lu72hip/data/pile"
-LOG_DIR="/vast/lu72hip/logs"
+BASE_DIR="/work/lu72hip/data/pile"
+LOG_DIR="/work/lu72hip/logs"
 DOWNLOAD_DIR="${BASE_DIR}/openaire_2025_12_01_dump"
 VENV_PATH="${BASE_DIR}/oa_venv"
 

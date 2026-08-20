@@ -1,11 +1,23 @@
 # ROR Dump
 
+## Second Dump | Released 2026-08-03 | v2.11 schema
+
+- **Docs**: https://ror.readme.io/docs/ror-data-structure-v2
+- **Download**: https://zenodo.org/records/21773148
+- **Schema**: https://github.com/ror-community/ror-schema/blob/schema-v2-1/ror_schema_v2_1.json 
+- **Location**: `/work/lu72hip/data/pile/ror_2026_08_03_dump/`
+- **File**:                                     # ---  `v2.3-2026-02-24-ror-data.json` (~275 MB, single JSON file)---
+- **Format**: A single top-level JSON array of organization records.
+- **Total records**: **135,710**
+
+---
+
 ## First Dump | Released 2026-02-24 | v2.3 schema
 
 - **Docs**: https://ror.readme.io/docs/ror-data-structure-v2
 - **Download**: https://zenodo.org/records/18761279
 - **Schema**: https://github.com/ror-community/ror-schema/blob/schema-v2-1/ror_schema_v2_1.json
-- **Location**: `/vast/lu72hip/data/pile/ror_2026_02_24_dump/`
+- **Location**: `/work/lu72hip/data/pile/ror_2026_02_24_dump/`
 - **File**: `v2.3-2026-02-24-ror-data.json` (~275 MB, single JSON file)
 - **Format**: A single top-level JSON array of organization records.
 - **Total records**: **122,388**
@@ -42,7 +54,7 @@ DuckDB reads the single JSON file directly:
 
 ```python
 con.execute("""
-    SELECT * FROM read_json('/vast/.../ror_2026_02_24_dump/v2.3-2026-02-24-ror-data.json',
+    SELECT * FROM read_json('/work/.../ror_2026_02_24_dump/v2.3-2026-02-24-ror-data.json',
         format='array')
 """)
 ```
@@ -182,7 +194,7 @@ SELECT
     domains,
     admin.created.date AS created_date,
     admin.last_modified.date AS last_modified_date
-FROM read_json('/vast/.../ror_2026_02_24_dump/v2.3-2026-02-24-ror-data.json', format='array')
+FROM read_json('/work/.../ror_2026_02_24_dump/v2.3-2026-02-24-ror-data.json', format='array')
 ```
 
 ### Extract primary display name

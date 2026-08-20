@@ -6,13 +6,13 @@
 #SBATCH --mem=8G
 #SBATCH --time=8:00:00
 #SBATCH --partition=standard
-#SBATCH --output=/vast/lu72hip/logs/openalex_download_%j.log
+#SBATCH --output=/work/lu72hip/logs/openalex_download_%j.log
 #SBATCH --mail-user=walter.ehrenberger@uni-jena.de
 #SBATCH --mail-type=ALL
 
 # --- Path Configuration ---
-BASE_DIR="/vast/lu72hip/data/pile"
-LOG_DIR="/vast/lu72hip/logs"
+BASE_DIR="/work/lu72hip/data/pile"
+LOG_DIR="/work/lu72hip/logs"
 DOWNLOAD_DIR="${BASE_DIR}/openalex_2026_02_03_dump"
 EXTRACT_DIR="${BASE_DIR}/openalex_query_id-0"
 VENV_PATH="${BASE_DIR}/openalex_venv"

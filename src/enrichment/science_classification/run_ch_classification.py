@@ -32,11 +32,13 @@ from utils.config.config_loader import get_project_root_path, get_query_config
 from utils.logger.logger import setup_logging
 
 # ── Hyperparams ────────────────────────────────────────────────────────────────
-BATCH_SIZE    = 2048   # sequences per GPU forward pass — reduced from 6144: eager mode (no torch.compile) needs <10GB for FFN intermediate
-MAX_LENGTH    = 512    # BERT max tokens
-PREFETCH      = 4      # tokenised batches buffered ahead of GPU
-THRESHOLD     = 0.5    # P(CH) >= threshold  →  is_ch = True
-SKIP_BATCHES  = set()  # batch indices to skip if a specific batch causes a hang; e.g. {891, 892}
+BATCH_SIZE = 2048  # sequences per GPU forward pass — reduced from 6144: eager mode (no torch.compile) needs <10GB for FFN intermediate
+MAX_LENGTH = 512  # BERT max tokens
+PREFETCH = 4  # tokenised batches buffered ahead of GPU
+THRESHOLD = 0.5  # P(CH) >= threshold  →  is_ch = True
+SKIP_BATCHES = (
+    set()
+)  # batch indices to skip if a specific batch causes a hang; e.g. {891, 892}
 
 # ── SQL ────────────────────────────────────────────────────────────────────────
 
@@ -61,11 +63,13 @@ ALTER TABLE project ADD COLUMN IF NOT EXISTS is_ch BOOLEAN;
 ALTER TABLE project ADD COLUMN IF NOT EXISTS pred  FLOAT;
 """
 
+
 # Binary results files written during inference — avoids any DuckDB/CUDA threading conflict.
 # ids_path  : N × int64   (8 bytes/row)
 # preds_path: N × float32 (4 bytes/row)
 def _results_paths(base: str):
     return base + ".ids.bin", base + ".preds.bin"
+
 
 def _results_row_count(base: str) -> int:
     ids_path, _ = _results_paths(base)
@@ -76,6 +80,7 @@ def _results_row_count(base: str) -> int:
 
 # ── Data loading (background thread) ──────────────────────────────────────────
 
+
 def _load_all_rows(db_path: str, offset_start: int) -> List[Tuple]:
     """
     Reads all remaining rows into memory in one shot, then closes the connection.
@@ -84,9 +89,7 @@ def _load_all_rows(db_path: str, offset_start: int) -> List[Tuple]:
     logging.info(f"[LOAD] Reading all rows from offset {offset_start:,} into memory...")
     con = duckdb.connect(db_path, read_only=True)
     try:
-        rows = con.execute(
-            _PROJECT_QUERY_ALL.format(offset=offset_start)
-        ).fetchall()
+        rows = con.execute(_PROJECT_QUERY_ALL.format(offset=offset_start)).fetchall()
     finally:
         con.close()
     logging.info(f"[LOAD] Loaded {len(rows):,} rows. DB read connection closed.")
@@ -110,7 +113,7 @@ def _tokeniser_worker(
     """
     try:
         for batch in _batch_iter(rows):
-            ids   = [row[0] for row in batch]
+            ids = [row[0] for row in batch]
             texts = [(row[1] or "")[:50_000] for row in batch]
             encoded = tokenizer(
                 texts,
@@ -126,6 +129,7 @@ def _tokeniser_worker(
 
 # ── Results write (main thread) ────────────────────────────────────────────────
 
+
 def _append_to_results(
     results_base: str,
     ids: List[int],
@@ -133,7 +137,7 @@ def _append_to_results(
 ) -> None:
     """Append batch predictions to binary files — no DuckDB, no GIL interaction."""
     ids_path, preds_path = _results_paths(results_base)
-    with open(ids_path,   "ab") as f:
+    with open(ids_path, "ab") as f:
         f.write(np.array(ids, dtype=np.int64).tobytes())
     with open(preds_path, "ab") as f:
         f.write(probs.astype(np.float32).tobytes())
@@ -146,13 +150,15 @@ def _merge_results_to_main(main_db_path: str, results_base: str) -> None:
     """
     ids_path, preds_path = _results_paths(results_base)
     logging.info(f"Loading results from {ids_path} ...")
-    ids   = np.frombuffer(open(ids_path,   "rb").read(), dtype=np.int64)
+    ids = np.frombuffer(open(ids_path, "rb").read(), dtype=np.int64)
     probs = np.frombuffer(open(preds_path, "rb").read(), dtype=np.float32)
-    df = pd.DataFrame({
-        "id":    ids,
-        "is_ch": (probs >= THRESHOLD),
-        "pred":  probs,
-    })
+    df = pd.DataFrame(
+        {
+            "id": ids,
+            "is_ch": (probs >= THRESHOLD),
+            "pred": probs,
+        }
+    )
     logging.info(f"Merging {len(df):,} rows into {main_db_path} ...")
     con = duckdb.connect(main_db_path)
     con.execute(_ADD_COLUMNS)
@@ -170,6 +176,7 @@ def _merge_results_to_main(main_db_path: str, results_base: str) -> None:
 
 
 # ── Inference loop (main thread) ───────────────────────────────────────────────
+
 
 def run_classification(
     model: BertForSequenceClassification,
@@ -190,7 +197,7 @@ def run_classification(
     # Load all remaining rows into memory, close read connection before writing
     rows = _load_all_rows(db_path, offset_start)
 
-    queue    = Queue(maxsize=PREFETCH)
+    queue = Queue(maxsize=PREFETCH)
     producer = threading.Thread(
         target=_tokeniser_worker,
         args=(rows, tokenizer, queue),
@@ -198,9 +205,9 @@ def run_classification(
     )
     producer.start()
 
-    total     = 0
+    total = 0
     batch_idx = 0
-    t_start   = datetime.datetime.now()
+    t_start = datetime.datetime.now()
 
     try:
         while True:
@@ -217,7 +224,7 @@ def run_classification(
 
             t_batch = datetime.datetime.now()
 
-            input_ids      = encoded["input_ids"].to(device, non_blocking=True)
+            input_ids = encoded["input_ids"].to(device, non_blocking=True)
             attention_mask = encoded["attention_mask"].to(device, non_blocking=True)
 
             with torch.no_grad():
@@ -226,9 +233,9 @@ def run_classification(
                 probs_ch = torch.softmax(logits.float(), dim=1)[:, 1].cpu().numpy()
             _append_to_results(results_path, ids, probs_ch)
 
-            total   += len(ids)
-            elapsed  = (datetime.datetime.now() - t_batch).total_seconds()
-            rate     = len(ids) / elapsed if elapsed > 0 else 0
+            total += len(ids)
+            elapsed = (datetime.datetime.now() - t_batch).total_seconds()
+            rate = len(ids) / elapsed if elapsed > 0 else 0
             logging.info(
                 f"Batch #{batch_idx:>5}  size={len(ids):>4}  "
                 f"total={total:>9,}  {rate:>6.0f} seq/s  "
@@ -241,6 +248,7 @@ def run_classification(
 
 # ── Test mode (no writes) ──────────────────────────────────────────────────────
 
+
 def run_test(
     model: BertForSequenceClassification,
     tokenizer: BertTokenizerFast,
@@ -248,7 +256,7 @@ def run_test(
     n_batches: int,
 ) -> None:
     """Dry-run: reads + infers N batches, prints throughput, writes nothing."""
-    device    = next(model.parameters()).device
+    device = next(model.parameters()).device
     amp_dtype = (
         torch.bfloat16
         if device.type == "cuda" and torch.cuda.is_bf16_supported()
@@ -261,14 +269,17 @@ def run_test(
     for i, batch in enumerate(_batch_iter(test_rows)):
         if i >= n_batches:
             break
-        ids   = [row[0] for row in batch]
+        ids = [row[0] for row in batch]
         texts = [(row[1] or "")[:50_000] for row in batch]
 
         encoded = tokenizer(
-            texts, padding=True, truncation=True,
-            max_length=MAX_LENGTH, return_tensors="pt",
+            texts,
+            padding=True,
+            truncation=True,
+            max_length=MAX_LENGTH,
+            return_tensors="pt",
         )
-        input_ids      = encoded["input_ids"].to(device, non_blocking=True)
+        input_ids = encoded["input_ids"].to(device, non_blocking=True)
         attention_mask = encoded["attention_mask"].to(device, non_blocking=True)
 
         t0 = datetime.datetime.now()
@@ -279,8 +290,8 @@ def run_test(
         elapsed = (datetime.datetime.now() - t0).total_seconds()
         times.append(elapsed)
 
-        preds   = probs_ch >= THRESHOLD
-        n_ch    = int(preds.sum())
+        preds = probs_ch >= THRESHOLD
+        n_ch = int(preds.sum())
         logging.info(
             f"[TEST] Batch #{i}  size={len(ids)}  "
             f"CH={n_ch}  NOT_CH={len(ids)-n_ch}  "
@@ -297,19 +308,28 @@ def run_test(
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--test", type=int, default=0, metavar="N",
+        "--test",
+        type=int,
+        default=0,
+        metavar="N",
         help="Dry-run: infer N batches from path_staging_duck, no DB writes.",
     )
     args = parser.parse_args()
 
     setup_logging("enrichment-ch_classification", "bert_inference")
 
-    config     = get_query_config()["core_v3"]
-    db_path    = config["path_staging_duck"] if args.test else "/vast/lu72hip/data/duckdb/core/core_v3_test_final.duckdb"
+    config = get_query_config()["core_v3"]
+    db_path = (
+        config["path_staging_duck"]
+        if args.test
+        else "/work/lu72hip/data/duckdb/core/core_v3_test_final.duckdb"
+    )
     model_path = get_project_root_path() / "models" / "bert_classifier"
 
     logging.info(f"Mode      : {'TEST (no writes)' if args.test else 'PRODUCTION'}")
@@ -317,12 +337,10 @@ def main() -> None:
     logging.info(f"Model path: {model_path}")
 
     if not torch.cuda.is_available():
-        raise RuntimeError(
-            "No CUDA GPU detected. Submit this job to a GPU node."
-        )
+        raise RuntimeError("No CUDA GPU detected. Submit this job to a GPU node.")
 
     device = torch.device("cuda")
-    props  = torch.cuda.get_device_properties(0)
+    props = torch.cuda.get_device_properties(0)
     logging.info(
         f"GPU: {props.name}  VRAM={props.total_memory / 1e9:.1f} GB  "
         f"CUDA {torch.version.cuda}"

@@ -7,8 +7,49 @@ SELECT
 	column_name,
 	data_type
 FROM information_schema.columns
-WHERE table_schema = 'core'
+WHERE table_schema = 'public'
 ORDER BY table_name, ordinal_position;
+
+-----------------------------------------------
+-- Data Description with samples
+-----------------------------------------------
+
+DO $$
+DECLARE
+    r RECORD;
+    sample_val TEXT;
+BEGIN
+    -- temp table to hold results
+    DROP TABLE IF EXISTS schema_samples;
+    CREATE TEMP TABLE schema_samples (
+        table_name   TEXT,
+        column_name  TEXT,
+        data_type    TEXT,
+        sample_value TEXT
+    );
+
+    FOR r IN
+        SELECT table_name, column_name, data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+        ORDER BY table_name, ordinal_position
+    LOOP
+        BEGIN
+            EXECUTE format(
+                'SELECT %I::text FROM %I.%I WHERE %I IS NOT NULL LIMIT 1',
+                r.column_name, 'public', r.table_name, r.column_name
+            ) INTO sample_val;
+        EXCEPTION WHEN OTHERS THEN
+            sample_val := '(error: ' || SQLERRM || ')';
+        END;
+
+        INSERT INTO schema_samples
+        VALUES (r.table_name, r.column_name, r.data_type, sample_val);
+    END LOOP;
+END $$;
+
+SELECT * FROM schema_samples
+ORDER BY table_name, column_name;
 
 -----------------------------------------------
 -- Advanced Data Description
@@ -36,7 +77,7 @@ LEFT JOIN information_schema.key_column_usage kcu
 LEFT JOIN information_schema.table_constraints tc
     ON kcu.constraint_name = tc.constraint_name
     AND kcu.table_schema = tc.table_schema
-WHERE c.table_schema = 'core'
+-- WHERE c.table_schema = 'core'
 ORDER BY c.table_name, c.ordinal_position;
 
 --

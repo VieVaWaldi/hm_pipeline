@@ -11,6 +11,9 @@
 --   - topicoa             -> topic
 --   - framework_programmes -> p."frameworkProgrammes" direct array (no junction join needed)
 
+SET maintenance_work_mem = '8GB';
+SET max_parallel_maintenance_workers = 8;
+
 CREATE MATERIALIZED VIEW core_mats.collaboration_by_topic AS
 SELECT DISTINCT
     r1.target            AS a_institution_id,
@@ -79,4 +82,4 @@ SELECT pg_size_pretty(pg_total_relation_size('core_mats.collaboration_by_topic')
 -- DROP                                      --
 -----------------------------------------------
 
--- DROP MATERIALIZED VIEW core_mats.collaboration_by_topic;
+DROP MATERIALIZED VIEW core_mats.collaboration_by_topic;

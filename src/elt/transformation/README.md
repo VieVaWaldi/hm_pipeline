@@ -4,7 +4,7 @@ DBT is used for the entire Transformation Process.
 
 Go [Here](../../sources/README.md) for Source Extraction & Loading.
 
-Go [Here](../../../README_DB.md) for the database documentation.
+Go [Here](../../../old_README_DB.md) for the database documentation.
 
 Never worked with dbt? Start [here](https://www.blef.fr/get-started-dbt/), the docs are
 [here](https://docs.getdbt.com/docs/introduction).

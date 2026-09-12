@@ -1,6 +1,3 @@
-select * from project where pred > 0.03;
-select * from topic;
-
 -----------------------------------------------
 -- Collaboration Network View               --
 -----------------------------------------------
@@ -73,4 +70,4 @@ CREATE INDEX idx_collaboration_network_institution
 -- DROP                                      --
 -----------------------------------------------
 
--- DROP MATERIALIZED VIEW core_mats.collaboration_network_view;
+DROP MATERIALIZED VIEW core_mats.collaboration_network_view;

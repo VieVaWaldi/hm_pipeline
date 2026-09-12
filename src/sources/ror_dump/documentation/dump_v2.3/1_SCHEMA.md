@@ -6,7 +6,7 @@
 - **Download**: https://zenodo.org/records/21773148
 - **Schema**: https://github.com/ror-community/ror-schema/blob/schema-v2-1/ror_schema_v2_1.json 
 - **Location**: `/work/lu72hip/data/pile/ror_2026_08_03_dump/`
-- **File**:                                     # ---  `v2.3-2026-02-24-ror-data.json` (~275 MB, single JSON file)---
+- **File**: v2.11-2026-08-03-ror-data.json
 - **Format**: A single top-level JSON array of organization records.
 - **Total records**: **135,710**
 

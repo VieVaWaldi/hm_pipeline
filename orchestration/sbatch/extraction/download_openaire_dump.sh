@@ -4,25 +4,30 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=64G
-#SBATCH --time=2-00:00:00
+#SBATCH --time=3-00:00:00
 #SBATCH --partition=standard
-#SBATCH --output=/work/lu72hip/logs/openaire_dowload_%j.log
+#SBATCH --output=/work/lu72hip/logs/openaire_download_%j.log
 #SBATCH --mail-user=walter.ehrenberger@uni-jena.de
 #SBATCH --mail-type=ALL
+
+set -uo pipefail
 
 # --- Path Configuration ---
 BASE_DIR="/work/lu72hip/data/pile"
 LOG_DIR="/work/lu72hip/logs"
-DOWNLOAD_DIR="${BASE_DIR}/openaire_2025_12_01_dump"
+DOWNLOAD_DIR="${BASE_DIR}/openaire_2026_06_05_dump"
 VENV_PATH="${BASE_DIR}/oa_venv"
+URLS_FILE="${DOWNLOAD_DIR}/file_urls.txt"
+STATUS_LOG="${LOG_DIR}/openaire_download_${SLURM_JOB_ID:-manual}_status.log"
 
 # OpenAIRE December 2025 record
-ZENODO_RECORD="17725827"
+ZENODO_RECORD="20428976"
+PARALLELISM=32
 
-mkdir -p "$LOG_DIR"
-mkdir -p "$DOWNLOAD_DIR"
+# mkdir -p "$LOG_DIR"
+# mkdir -p "$DOWNLOAD_DIR"
 
-# --- Venv Setup ---
+# # --- Venv Setup ---
 # if [ ! -d "$VENV_PATH" ]; then
 #     python3 -m venv "$VENV_PATH"
 #     source "$VENV_PATH/bin/activate"
@@ -31,66 +36,130 @@ mkdir -p "$DOWNLOAD_DIR"
 #     source "$VENV_PATH/bin/activate"
 # fi
 
-# --- 1. Fetch file list from Zenodo API ---
+# # --- 1. Fetch file list from Zenodo API ---
 # echo "Fetching file list from Zenodo record ${ZENODO_RECORD}: $(date)"
 # python3 << EOF
 # import requests
-# import json
+# import sys
 
 # record_id = "${ZENODO_RECORD}"
 # api_url = f"https://zenodo.org/api/records/{record_id}"
-# response = requests.get(api_url)
+# response = requests.get(api_url, timeout=60)
+# response.raise_for_status()
 # data = response.json()
 
 # files = data.get('files', [])
-# print(f"Found {len(files)} files in record")
+# if not files:
+#     print("ERROR: no files found in record response", file=sys.stderr)
+#     sys.exit(1)
 
-# # Save download URLs to file
-# with open("${DOWNLOAD_DIR}/file_urls.txt", 'w') as f:
+# with open("${URLS_FILE}", 'w') as f:
 #     for file_info in files:
 #         url = file_info['links']['self']
 #         filename = file_info['key']
-#         f.write(f"{url}\t{filename}\n")
+#         size = file_info['size']
+#         f.write(f"{url}\t{filename}\t{size}\n")
 
-# print(f"Saved URLs to ${DOWNLOAD_DIR}/file_urls.txt")
-# print(f"Total size: {sum(f['size'] for f in files) / (1024**3):.2f} GB")
+# total_gb = sum(f['size'] for f in files) / (1024**3)
+# print(f"Found {len(files)} files, {total_gb:.2f} GB total")
+# print(f"Saved URLs to ${URLS_FILE}")
 # EOF
 
-# --- 2. Download files in parallel ---
-# echo "Downloading files with 32 parallel connections: $(date)"
+# if [ ! -s "$URLS_FILE" ]; then
+#     echo "FATAL: ${URLS_FILE} is empty, aborting" >&2
+#     exit 1
+# fi
 
-# Read URLs and download in parallel
-# cat "${DOWNLOAD_DIR}/file_urls.txt" | while IFS=$'\t' read -r url filename; do
-#     echo "$DOWNLOAD_DIR"
-#     echo "$url"
-#     echo "$filename"
-# done | xargs -P 32 -n 3 bash -c '
-#     DOWNLOAD_DIR="$1"
-#     URL="$2"
-#     FILENAME="$3"
-#     OUTPUT="${DOWNLOAD_DIR}/${FILENAME}"
-    
-#     wget -q --show-progress -O "$OUTPUT" "$URL" || \
-#     curl -L -o "$OUTPUT" "$URL"
-    
-#     echo "Downloaded: $FILENAME"
-# ' _
+# EXPECTED_COUNT=$(wc -l < "$URLS_FILE")
+# echo "Expected file count: ${EXPECTED_COUNT}"
 
-# --- 3. Validation ---
-echo "Downloaded file count: $(date)"
-find "$DOWNLOAD_DIR" -name "*.tar" -o -name "*.gz" | wc -l
-du -sh "$DOWNLOAD_DIR"
+# # --- 2. Build list of files still needed (resume-safe) ---
+# REMAINING_FILE="${DOWNLOAD_DIR}/file_urls_remaining.txt"
+# > "$REMAINING_FILE"
+# while IFS=$'\t' read -r url filename size; do
+#     dest="${DOWNLOAD_DIR}/${filename}"
+#     if [ -f "$dest" ] && [ "$(stat -c%s "$dest" 2>/dev/null || echo 0)" -eq "$size" ]; then
+#         continue  # already complete, skip
+#     fi
+#     printf '%s\t%s\t%s\n' "$url" "$filename" "$size" >> "$REMAINING_FILE"
+# done < "$URLS_FILE"
 
-# --- 4. Extract tar files in place, then remove tar ---
+# REMAINING_COUNT=$(wc -l < "$REMAINING_FILE")
+# echo "Files remaining to download: ${REMAINING_COUNT} / ${EXPECTED_COUNT}: $(date)"
+
+# # --- 3. Download in parallel, resumable, retried, logged per-file ---
+# if [ "$REMAINING_COUNT" -gt 0 ]; then
+#     echo "Downloading with ${PARALLELISM} parallel workers: $(date)"
+
+#     export DOWNLOAD_DIR STATUS_LOG
+
+#     xargs -P "$PARALLELISM" -a "$REMAINING_FILE" -L 1 bash -c '
+#         url="$1"
+#         filename="$2"
+#         expected_size="$3"
+#         dest="${DOWNLOAD_DIR}/${filename}"
+#         part="${dest}.part"
+
+#         attempt=0
+#         max_attempts=5
+#         ok=0
+#         while [ "$attempt" -lt "$max_attempts" ]; do
+#             attempt=$((attempt + 1))
+#             # -c resumes a partial .part file instead of restarting from zero
+#             if wget -q -c -O "$part" "$url"; then
+#                 actual_size=$(stat -c%s "$part" 2>/dev/null || echo 0)
+#                 if [ "$actual_size" -eq "$expected_size" ]; then
+#                     mv "$part" "$dest"
+#                     echo "OK ${filename} attempt=${attempt}" >> "$STATUS_LOG"
+#                     ok=1
+#                     break
+#                 else
+#                     echo "SIZE_MISMATCH ${filename} attempt=${attempt} expected=${expected_size} got=${actual_size}" >> "$STATUS_LOG"
+#                 fi
+#             else
+#                 echo "WGET_FAIL ${filename} attempt=${attempt}" >> "$STATUS_LOG"
+#             fi
+#             sleep $((attempt * 5))
+#         done
+#         if [ "$ok" -ne 1 ]; then
+#             echo "FAILED ${filename} after ${max_attempts} attempts" >> "$STATUS_LOG"
+#         fi
+#     ' _
+# else
+#     echo "Nothing to download, all files already present and correctly sized."
+# fi
+
+# # --- 4. Verification ---
+# echo "Verifying downloads: $(date)"
+# FINAL_OK=0
+# FINAL_BAD=0
+# while IFS=$'\t' read -r url filename size; do
+#     dest="${DOWNLOAD_DIR}/${filename}"
+#     if [ -f "$dest" ] && [ "$(stat -c%s "$dest" 2>/dev/null || echo 0)" -eq "$size" ]; then
+#         FINAL_OK=$((FINAL_OK + 1))
+#     else
+#         FINAL_BAD=$((FINAL_BAD + 1))
+#         echo "MISSING_OR_BAD: $filename"
+#     fi
+# done < "$URLS_FILE"
+
+# echo "Verification complete: ${FINAL_OK}/${EXPECTED_COUNT} files OK, ${FINAL_BAD} missing/bad"
+# du -sh "$DOWNLOAD_DIR"
+# echo "Process finished: $(date)"
+
+# if [ "$FINAL_BAD" -gt 0 ]; then
+#     echo "WARNING: incomplete download, ${FINAL_BAD} files still need attention. Re-run this script to retry only those." >&2
+#     exit 1
+# fi
+
+# echo "All ${EXPECTED_COUNT} files downloaded successfully."
+
+# --- 5. (left commented, same as your original — run once you're ready to extract) ---
 echo "Extracting tar archives in place: $(date)"
 find "$DOWNLOAD_DIR" -name "*.tar" -type f -print0 | xargs -0 -P 32 -I {} bash -c '
     TARFILE="{}"
     tar -xf "$TARFILE" -C "'"${DOWNLOAD_DIR}"'" && rm "$TARFILE"
     echo "Extracted and removed: $(basename "$TARFILE")"
 '
-
-# --- 5. Final counts ---
-echo "Final file count: $(date)"
 find "$DOWNLOAD_DIR" -type f -name "*.gz" | wc -l
 du -sh "$DOWNLOAD_DIR"
-echo "Process finished: $(date)"

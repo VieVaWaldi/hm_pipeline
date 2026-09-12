@@ -2,13 +2,22 @@
 
 This document explains the source data schema as available in the dump.
 
+## First Dump | Published 05.06.2026 | v11
+
+- **Docs**: https://graph.openaire.eu/docs/data-model/ | https://zenodo.org/records/20428976
+- **Location**: `/work/lu72hip/data/pile/openaire_2026_06_05_dump/`
+- **Total size**: ~____ GB compressed
+- **Format**: Each entity is a directory of `part-XXXXX.json.gz` files (newline-delimited JSON, gzip-compressed).
+
+---
+
+
 ## First Dump | Published 01.12.2025 | v10.6.0
 
 - **Docs**: https://graph.openaire.eu/docs/data-model/ | https://zenodo.org/records/14608526
 - **Location**: `/work/lu72hip/data/pile/openaire_2025_12_01_dump/`
 - **Total size**: ~309 GB compressed
 - **Format**: Each entity is a directory of `part-XXXXX.json.gz` files (newline-delimited JSON, gzip-compressed).
-- **Data model**: https://graph.openaire.eu/docs/data-model/
 
 ---
 

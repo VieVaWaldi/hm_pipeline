@@ -12,12 +12,12 @@
 
 # --- Path Configuration ---
 BASE_DIR="/work/lu72hip/data/pile"
-DOWNLOAD_DIR="${BASE_DIR}/ror_2026_02_24"
+DOWNLOAD_DIR="${BASE_DIR}/ror_2026_08_03"
 LOG_DIR="/work/lu72hip/logs"
 
 # ROR v2.3 February 2026 record
-ZENODO_RECORD="18761279"
-ZIP_FILE="v2.3-2026-02-24-ror-data.zip"
+ZENODO_RECORD="21773148"
+ZIP_FILE="v2.11-2026-08-03-ror-data.zip"
 
 mkdir -p "$LOG_DIR"
 mkdir -p "$DOWNLOAD_DIR"

@@ -55,9 +55,10 @@ class CordisExtractor(IExtractor):
             log_and_exit("API_KEY_CORDIS not found in environment variables")
 
     def should_continue(self) -> bool:
-        """Continue while next checkpoint < today + 10 years"""
-        ten_years_future = datetime.now() + relativedelta(years=10)
-        return self.get_checkpoint_end() < ten_years_future
+        """Continue while next checkpoint < today + 1 year.
+        Cordis doesnt seem to allow more than 1 year"""
+        one_year_future = datetime.now() + relativedelta(years=1)
+        return self.get_checkpoint_end() < one_year_future
 
     def build_query(self) -> str:
         start_date = self.checkpoint

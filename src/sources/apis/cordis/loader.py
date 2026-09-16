@@ -88,8 +88,6 @@ class CordisLoader(ILoader):
             return
 
         project, created_project = self._create_project(session, project_data)
-        # if not created_project:
-        #     return
 
         topics = self._create_topics(session, project_data)
         session.flush()  # Can create the same topics again with research output, need flush for get_or_create
@@ -125,6 +123,7 @@ class CordisLoader(ILoader):
             session,
             Project,
             {"id_original": id_original},
+            update_on_found=True,
             doi=self._get_doi(project_data, "identifiers.grantDoi"),
             title=title,
             acronym=parse_string(project_data.get("acronym")),
@@ -295,12 +294,20 @@ class CordisLoader(ILoader):
             if not first_name and not last_name:
                 continue
 
+            # Same identity key as _create_output_authors' {"name": ...} — a person who
+            # shows up both as an institution contact and as a research-output author
+            # must resolve to the same row, which requires both paths to key on the
+            # same column. (Only collapses exact-string matches; real fuzzy person
+            # resolution belongs in the analysis stage, not this loader.)
+            full_name = " ".join(part for part in (first_name, last_name) if part)
+
             person, _ = get_or_create(
                 session,
                 Person,
-                {"first_name": first_name, "last_name": last_name},
+                {"name": full_name},
                 title=parse_string(person_data.get("title")),
-                name=None,
+                first_name=first_name,
+                last_name=last_name,
                 telephone_number=parse_string(
                     get_nested(person_data, "address.telephoneNumber")
                 ),
@@ -399,6 +406,7 @@ class CordisLoader(ILoader):
                 session,
                 ResearchOutput,
                 {"id_original": id_original},
+                update_on_found=True,
                 from_pdf=False,
                 type=output_type,
                 doi=self._get_doi(result_data, "identifiers.doi"),
@@ -412,29 +420,31 @@ class CordisLoader(ILoader):
                 **details,
             )
 
-            if created:
-                research_outputs.append(research_output)
+            # Always link — a research output already loaded from another
+            # project's extraction still needs this project's j_project_researchoutput
+            # row, and its topic/weblink/institution/author relations should stay
+            # current with the latest extraction, not just whichever run created it.
+            research_outputs.append(research_output)
 
-                # ToDo: Check if flush here is needed
-                session.flush()
+            session.flush()
 
-                output_topics = self._create_output_topics(session, result_data)
-                output_weblinks = self._create_output_weblinks(session, result_data)
-                output_institutions = self._create_output_institutions(
-                    session, result_data
-                )
+            output_topics = self._create_output_topics(session, result_data)
+            output_weblinks = self._create_output_weblinks(session, result_data)
+            output_institutions = self._create_output_institutions(
+                session, result_data
+            )
 
-                self._create_output_authors(session, author_str, research_output)
+            self._create_output_authors(session, author_str, research_output)
 
-                self._create_output_topics_junction(
-                    session, research_output, output_topics
-                )
-                self._create_output_weblinks_junction(
-                    session, research_output, output_weblinks
-                )
-                self._create_output_institutions_junction(
-                    session, research_output, output_institutions
-                )
+            self._create_output_topics_junction(
+                session, research_output, output_topics
+            )
+            self._create_output_weblinks_junction(
+                session, research_output, output_weblinks
+            )
+            self._create_output_institutions_junction(
+                session, research_output, output_institutions
+            )
 
         research_output_pdfs = self._create_research_output_attachments(session)
         return research_outputs + research_output_pdfs

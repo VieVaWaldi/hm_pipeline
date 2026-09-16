@@ -1,5 +1,11 @@
 from common.config.settings import get_settings
-from common.config.queries import get_query_settings
-from common.config.paths import get_source_paths
+from common.config.api_runner import get_query_settings
+from common.config.dumps import get_dumps_paths
+from common.config.pipelines import get_pipeline_paths
 
-__all__ = ["get_settings", "get_query_settings", "get_source_paths"]
+__all__ = [
+    "get_settings",
+    "get_query_settings",
+    "get_dumps_paths",
+    "get_pipeline_paths",
+]

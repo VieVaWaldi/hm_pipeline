@@ -13,7 +13,7 @@ def get_source_data_path(source_name: str, query_id: str | None) -> Path:
     In dev mode source data is saved in project dir.
     In prod mode source data is saved on another place on disk, see config.
     """
-    from common.config.queries import get_query_settings
+    from common.config.api_runner import get_query_settings
     from common.config.settings import get_settings
 
     assert source_name in get_query_settings(), f"Faulty source name: {source_name}"

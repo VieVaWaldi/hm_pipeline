@@ -12,6 +12,7 @@ prod:
   logging_path: data/logs/
   data_path: /work/lu72hip/data/pile/
   orchestration_path: orchestration/
+  hpc_root: /work/lu72hip
   db:
     url: lu72hip@localhost
     port: '5433'

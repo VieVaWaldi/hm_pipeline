@@ -27,11 +27,7 @@ cp .env.example .env
 **Installing new packages**
 
 ```bash
-# add a dependency to the root project
 uv add <package>
-
-# add a dependency to one workspace member only, e.g. sources
-uv add --package sources <package>
 ```
 
 ## The Pipeline Way
@@ -131,7 +127,7 @@ config/
 src/
 ├── sources/          # bronze: extract+load, per source, canon-independent, split by access pattern
 │   ├── apis/         # incremental, checkpointed, query-driven (arxiv, cordis, coreac)
-│   ├── dumps/        # periodic bulk snapshots, no checkpointing (openaire_dump, ror_dump, openalex_dump)
+│   ├── dumps/        # periodic bulk snapshots, no checkpointing (openaire, ror, openalex)
 │   └── external/     # not core_v4 scope, kept for something else (meta_heritage)
 ├── pipelines/
 │   ├── core_v4/
@@ -143,8 +139,7 @@ src/
 │   └── core_v3/         # frozen reference docs only, not executed
 ├── common/           # pydantic-settings config, db clients, file handling, requests, sanitizers
 │   └── api_runner/   # run_extractor.py/run_loader.py (IExtractor/ILoader defined in-file) + checkpoint_manager — only for sources/apis/
-├── enrichment/       # reusable ML capabilities (llm, ocr, geolocation, science_classification, topic_modelling, crossref)
-└── analysis_lib/     # foci.sql and other reusable dedup/profiling SQL
+└── enrichment/       # reusable ML capabilities (llm, ocr, geolocation, science_classification, topic_modelling, crossref)
 data/                 # pile/, checkpoints/ (cordis only), logs/, models/
 tests/
 ```

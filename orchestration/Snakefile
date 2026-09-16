@@ -23,8 +23,14 @@ from pathlib import Path
 REPO_ROOT = Path(workflow.basedir).parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from common.config.queries import get_query_settings
-from common.config.paths import get_source_paths
+# Rules with a relative shell path (e.g. "bash src/sources/...") only resolve
+# correctly if the shell cwd is the repo root — pin it here so `snakemake` works
+# the same whether invoked from orchestration/ (Snakefile auto-discovery) or
+# from the repo root via -s orchestration/Snakefile.
+workdir: str(REPO_ROOT)
+
+from common.config.api_runner import get_query_settings
+from common.config.dumps import get_dumps_paths
 
 QUERY_SOURCES = ["arxiv", "cordis", "coreac"]  # meta_heritage has no queries
 

@@ -27,7 +27,7 @@ cordis:
       download_attachments: false
       checkpoint_start: '1985-01-01'
       checkpoint_range: '1'
-      path_duck: /work/lu72hip/data/duckdb/sources/cordis_full_projects_no_pdfs_raw.duckdb
+      path_duck: data/duckdb/sources/cordis_full_projects_no_pdfs_raw.duckdb
 coreac:
   checkpoint: publishedDate
   queries:
@@ -37,5 +37,3 @@ coreac:
       checkpoint_start: '1990-01-01'
       checkpoint_range: '10'
       path_duck: data/duckdb/sources/coreac_computing_heritage_raw.duckdb
-meta_heritage:
-  checkpoint: null

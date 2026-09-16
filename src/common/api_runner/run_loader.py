@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 
 from common.api_runner.checkpoint_manager import CheckpointManager
-from common.config.queries import get_query_settings
+from common.config.api_runner import get_query_settings
 from common.database.duck.create_db_session import create_duck_db_session
 from common.database.postgres.create_db_session import create_db_session
 from common.database.shared.get_or_create import ModelCreationMonitor
@@ -96,7 +96,7 @@ def run_loader(config: LoaderConfig, db: str = "duck"):
 
                 if doc_idx % config.batch_size == 0:
                     session.commit()
-                    # session.expunge_all()  # Clear all entities from memory
+                    session.expunge_all()
 
                 if doc_idx % 1000 == 0:
                     logging.info(f"Processed # {doc_idx} documents")
@@ -128,7 +128,7 @@ if __name__ == "__main__":
     parser.add_argument("--source", help="Select data source", required=True)
     parser.add_argument(
         "--query_id",
-        help="Named query key for the source (see config/queries.yaml)",
+        help="Named query key for the source (see config/api_runner.yaml)",
         required=True,
     )
     parser.add_argument(

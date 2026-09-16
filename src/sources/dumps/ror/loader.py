@@ -9,13 +9,13 @@ from pathlib import Path
 from common.database.duck.create_connection import create_duck_connection
 from common.database.duck.utils import get_size_log
 from common.file_handling.file_utils import ensure_path_exists
-from common.config.paths import get_source_paths
+from common.config.dumps import get_dumps_paths
 from common.log.logger import setup_logging
 from common.log.timer import log_run_time
 
 setup_logging("loader", "ror_dump")
 
-config = get_source_paths()["ror_dump"]
+config = get_dumps_paths()["ror_dump"]
 ROR_SOURCE = Path(config["path_raw"])
 ROR_DB = Path(config["path_duck"])
 
@@ -30,7 +30,7 @@ start_time = datetime.now()
 con = create_duck_connection(str(ROR_DB))
 con.execute(
     f"""
-    CREATE TABLE organizations AS
+    CREATE OR REPLACE TABLE organizations AS
     SELECT *
     FROM read_json('{ROR_SOURCE}', format='auto')
 """

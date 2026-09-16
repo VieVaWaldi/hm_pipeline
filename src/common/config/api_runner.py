@@ -4,9 +4,10 @@ from typing import Dict, Optional
 import yaml
 from pydantic import BaseModel
 
+from common.config.source_paths import resolve_data_path
 from common.file_handling.path_utils import get_project_root_path
 
-QUERIES_FILE = "queries.yaml"
+QUERIES_FILE = "api_runner.yaml"
 
 
 class QueryConfig(BaseModel):
@@ -24,9 +25,14 @@ class SourceQueryConfig(BaseModel):
 
 @lru_cache
 def get_query_settings() -> Dict[str, SourceQueryConfig]:
-    """Loads config/queries.yaml: extraction query definitions per source
+    """Loads config/api_runner.yaml: extraction query definitions per source
     (arxiv, cordis, coreac, meta_heritage). For per-source disk paths
-    (dumps, duckdb files), see common.config.paths.get_source_paths instead."""
+    (dumps, duckdb files), see common.config.dumps.get_dumps_paths instead."""
     config_path = get_project_root_path() / "config" / QUERIES_FILE
     raw = yaml.safe_load(config_path.read_text())
-    return {name: SourceQueryConfig(**cfg) for name, cfg in raw.items()}
+    settings = {name: SourceQueryConfig(**cfg) for name, cfg in raw.items()}
+    for source in settings.values():
+        for query in source.queries.values():
+            if query.path_duck is not None:
+                query.path_duck = resolve_data_path(query.path_duck)
+    return settings

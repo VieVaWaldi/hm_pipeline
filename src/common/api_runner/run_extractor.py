@@ -9,7 +9,7 @@ from typing import Any, Type
 
 from dotenv import load_dotenv
 
-from common.config.queries import get_query_settings
+from common.config.api_runner import get_query_settings
 from common.config.settings import get_settings
 from common.errors.error_handling import log_and_exit
 from common.file_handling.file_utils import ensure_path_exists, load_file, write_file
@@ -127,7 +127,7 @@ if __name__ == "__main__":
     parser.add_argument("--source", help="Select data source", required=True)
     parser.add_argument(
         "--query_id",
-        help="Named query key for the source (see config/queries.yaml)",
+        help="Named query key for the source (see config/api_runner.yaml)",
         required=True,
     )
     args = parser.parse_args()

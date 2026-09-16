@@ -1,5 +1,7 @@
 # Source: Coreac
 
+~ IMPORTANT: WIP, code doesnt run yet ~
+
 * [API](https://api.core.ac.uk/docs/v3#tag/Works) we are using. Page also has Data Schema
 * Get Work by original_id `https://api.core.ac.uk/v3/works/{original_id}`
 

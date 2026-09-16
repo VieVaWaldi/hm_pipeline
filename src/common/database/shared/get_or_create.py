@@ -35,14 +35,22 @@ class ModelCreationMonitor:
             )
 
 
-def get_or_create(session: Session, model, unique_key: dict, **kwargs):
+def get_or_create(
+    session: Session, model, unique_key: dict, *, update_on_found: bool = False, **kwargs
+):
     """Get an existing instance or create a new one.
 
     Args:
         session: SQLAlchemy session
         model: The model class to query
         unique_key: Dict containing the unique identifier(s) to search by
-        **kwargs: Additional fields to use when creating a new instance
+        update_on_found: If True and an instance already exists, overwrite its
+            fields with **kwargs instead of leaving it untouched. Use this for
+            entities whose content can legitimately change between loads (e.g.
+            a project's status); leave it False for dimension/reference values
+            where the unique_key already is the entity's full identity.
+        **kwargs: Additional fields to use when creating a new instance, or to
+            update an existing one when update_on_found=True.
 
     Returns:
         True if a new instance was creates OR False if the instance already exists
@@ -52,6 +60,9 @@ def get_or_create(session: Session, model, unique_key: dict, **kwargs):
         with session.no_autoflush:
             instance = session.scalar(select(model).filter_by(**unique_key))
         if instance:
+            if update_on_found:
+                for key, value in kwargs.items():
+                    setattr(instance, key, value)
             session.add(instance)
             ModelCreationMonitor.record(model.__tablename__, is_created=False)
             return instance, False

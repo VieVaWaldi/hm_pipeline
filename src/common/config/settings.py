@@ -22,6 +22,7 @@ class Settings(BaseModel):
     logging_path: Path
     data_path: Path
     orchestration_path: Path
+    hpc_root: str = ""
     db: DBSettings
 
 

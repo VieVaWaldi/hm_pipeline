@@ -1,22 +1,18 @@
 #!/bin/bash
-#SBATCH --job-name=openaire_download
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=64G
-#SBATCH --time=3-00:00:00
-#SBATCH --partition=standard
-#SBATCH --output=/work/lu72hip/logs/openaire_download_%j.log
-#SBATCH --mail-user=walter.ehrenberger@uni-jena.de
-#SBATCH --mail-type=ALL
-
+# Downloads (and extracts) the OpenAIRE dump from Zenodo.
+#
+# Usage: bash download.sh <target-dir>
+#   <target-dir> is the resolved path_raw from config/dumps.yaml (dev:
+#   project-relative; prod: under hpc_root) — Snakemake passes it as the
+#   rule's `output:`. Resourcing for the HPC (mem/cpus/runtime) comes from
+#   download_openaire_dump's `resources:` in orchestration/rules/dumps.smk,
+#   read by the slurm executor — not from #SBATCH headers here.
 set -uo pipefail
 
 # --- Path Configuration ---
-BASE_DIR="/work/lu72hip/data/pile"
-LOG_DIR="/work/lu72hip/logs"
-DOWNLOAD_DIR="${BASE_DIR}/openaire_2026_06_05_dump"
-VENV_PATH="${BASE_DIR}/oa_venv"
+DOWNLOAD_DIR="$1"
+LOG_DIR="${DOWNLOAD_DIR}/../../logs"
+VENV_PATH="${DOWNLOAD_DIR}/../oa_venv"
 URLS_FILE="${DOWNLOAD_DIR}/file_urls.txt"
 STATUS_LOG="${LOG_DIR}/openaire_download_${SLURM_JOB_ID:-manual}_status.log"
 

@@ -23,13 +23,13 @@ from common.sanitizers.parse_text import (
     parse_titles_and_labels,
     parse_web_resources,
 )
-from common.config.paths import get_source_paths
+from common.config.dumps import get_dumps_paths
 from common.log.logger import setup_logging
 from common.log.timer import log_run_time
 
 setup_logging("staging", "openaire")
 
-config = get_source_paths()["openaire_dump"]
+config = get_dumps_paths()["openaire_dump"]
 RAW_DB = Path(config["path_duck"])
 STAGING_DB = Path(
     config["path_duck_staging_2"]

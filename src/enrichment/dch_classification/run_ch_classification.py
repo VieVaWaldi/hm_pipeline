@@ -29,7 +29,7 @@ from torch.amp import autocast
 from transformers import BertForSequenceClassification, BertTokenizerFast
 
 from common.file_handling.path_utils import get_project_root_path
-from common.config.paths import get_source_paths
+from common.config.pipelines import get_pipeline_paths
 from common.log.logger import setup_logging
 
 # ── Hyperparams ────────────────────────────────────────────────────────────────
@@ -325,7 +325,7 @@ def main() -> None:
 
     setup_logging("enrichment-ch_classification", "bert_inference")
 
-    config = get_source_paths()["core_v3"]
+    config = get_pipeline_paths()["core_v3"]
     db_path = (
         config["path_staging_duck"]
         if args.test

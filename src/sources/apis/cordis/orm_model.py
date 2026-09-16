@@ -23,11 +23,13 @@ Base = declarative_base()
 
 class Person(Base):
     __tablename__ = "person"
-    # __table_args__ = {"schema": "cordis"}
 
     id = Column(Integer, Sequence("person_id_seq"), primary_key=True)
     title = Column(Text)
-    name = Column(Text)
+    # Sole identity key — both institution personnel (first_name+last_name joined
+    # into name) and research-output authors (free-text name string) key get_or_create
+    # off this one column, so the same person resolves to the same row either way.
+    name = Column(Text, unique=True, nullable=False)
     first_name = Column(Text)
     last_name = Column(Text)
     telephone_number = Column(Text)

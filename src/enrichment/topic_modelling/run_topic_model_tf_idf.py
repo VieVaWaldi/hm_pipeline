@@ -13,12 +13,14 @@ from pandas import DataFrame
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from enrichment.core_orm_model import ResearchOutput, JResearchOutputTopicOA, TopicOA
-from enrichment.utils.batch_requester import BatchRequester
-from lib.database.postgres.create_db_session import create_db_session
-from lib.database.postgres.get_or_create import get_or_create
-from lib.file_handling.path_utils import get_project_root_path
-from utils.logger.logger import setup_logging
+# TODO: core_orm_model.py was removed from enrichment_lib (no model lives outside the
+# actual pipeline). Point this at the core_v4 model once it exists.
+from enrichment_lib.core_orm_model import ResearchOutput, JResearchOutputTopicOA, TopicOA
+from enrichment_lib.utils.batch_requester import BatchRequester
+from common.database.postgres.create_db_session import create_db_session
+from common.database.postgres.get_or_create import get_or_create
+from common.file_handling.path_utils import get_project_root_path
+from common.log.logger import setup_logging
 
 # Global variables
 topic_vectors = None

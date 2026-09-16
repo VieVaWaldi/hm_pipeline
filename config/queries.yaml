@@ -1,0 +1,41 @@
+arxiv:
+  checkpoint: submittedDateTo
+  queries:
+    heritage_digital_humanities:
+      query: (all:cultural+OR+all:heritage+OR+all:digital+OR+all:humanities)
+      download_attachments: true
+      checkpoint_start: 1990-01-01-00-00
+      checkpoint_range: '6'
+      path_duck: data/duckdb/sources/arxiv_heritage_digital_humanities_raw.duckdb
+    computing_humanities:
+      query: all:computing+AND+(all:humanities+OR+all:heritage)
+      download_attachments: true
+      checkpoint_start: 1990-01-01-00-00
+      checkpoint_range: '6'
+      path_duck: data/duckdb/sources/arxiv_computing_humanities_raw.duckdb
+cordis:
+  checkpoint: startDate
+  queries:
+    heritage_subset_with_pdfs:
+      query: cultural OR heritage OR digital OR humanities
+      download_attachments: true
+      checkpoint_start: '1985-01-01'
+      checkpoint_range: '1'
+      path_duck: data/duckdb/sources/cordis_heritage_subset_with_pdfs_raw.duckdb
+    full_projects_no_pdfs:
+      query: contenttype='project' AND '*'
+      download_attachments: false
+      checkpoint_start: '1985-01-01'
+      checkpoint_range: '1'
+      path_duck: /work/lu72hip/data/duckdb/sources/cordis_full_projects_no_pdfs_raw.duckdb
+coreac:
+  checkpoint: publishedDate
+  queries:
+    computing_heritage:
+      query: ((computing AND cultural) OR (computing AND heritage))
+      download_attachments: false
+      checkpoint_start: '1990-01-01'
+      checkpoint_range: '10'
+      path_duck: data/duckdb/sources/coreac_computing_heritage_raw.duckdb
+meta_heritage:
+  checkpoint: null

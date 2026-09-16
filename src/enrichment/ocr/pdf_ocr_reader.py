@@ -7,7 +7,7 @@ from typing import Optional
 
 import PyPDF2
 
-from lib.sanitizers.parse_text import parse_content
+from common.sanitizers.parse_text import parse_content
 
 
 def pdf_to_text(pdf_path: Path) -> Optional[str]:

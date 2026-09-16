@@ -1,4 +1,4 @@
-from lib.database.postgres.create_db_session import create_db_session
+from common.database.postgres.create_db_session import create_db_session
 
 
 class BatchRequester:

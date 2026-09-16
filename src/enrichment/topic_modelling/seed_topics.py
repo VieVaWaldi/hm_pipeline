@@ -2,10 +2,12 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
-from enrichment.core_orm_model import TopicOA
-from lib.database.postgres.create_db_session import create_db_session
-from lib.database.postgres.get_or_create import get_or_create
-from utils.config.config_loader import get_project_root_path
+# TODO: core_orm_model.py was removed from enrichment_lib (no model lives outside the
+# actual pipeline). Point this at the core_v4 model once it exists.
+from enrichment_lib.core_orm_model import TopicOA
+from common.database.postgres.create_db_session import create_db_session
+from common.database.postgres.get_or_create import get_or_create
+from common.file_handling.path_utils import get_project_root_path
 
 
 def seed_topics(df: DataFrame):

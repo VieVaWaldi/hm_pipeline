@@ -1,0 +1,24 @@
+# SLURM execution profile for the HPC.
+# Usage: snakemake --workflow-profile orchestration/profiles/slurm <target>
+#
+# Requires: uv add snakemake-executor-plugin-slurm (already in pyproject.toml)
+
+executor: slurm
+jobs: 20
+latency-wait: 60
+rerun-incomplete: true
+printshellcmds: true
+
+# @Claude: Once we run this on the HPC remind me to actually config this section
+default-resources:
+  slurm_partition: fat
+  mem_mb: 8000
+  runtime: 240  # minutes
+  cpus_per_task: 2
+
+# Containers: once pipelines/core_v4 rules exist and declare `container: "docker://..."`,
+# add --software-deployment-method apptainer here. The flag is named "apptainer" but
+# Snakemake accepts either an `apptainer` or `singularity` binary on PATH — Draco has
+# SingularityCE 3.11.4 at /usr/bin/singularity, which satisfies it directly. Same
+# docker:// image reference works locally under `--sdm docker`, no separate build needed.
+# software-deployment-method: apptainer

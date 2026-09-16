@@ -1,0 +1,18 @@
+dev:
+  checkpoint_path: data/checkpoints/
+  logging_path: data/logs/
+  data_path: data/pile/
+  orchestration_path: orchestration/
+  db:
+    url: wehrenberger@localhost
+    port: '5432'
+    db_name: db_digicher_v2
+prod:
+  checkpoint_path: data/checkpoints/
+  logging_path: data/logs/
+  data_path: /work/lu72hip/data/pile/
+  orchestration_path: orchestration/
+  db:
+    url: lu72hip@localhost
+    port: '5433'
+    db_name: db_digicher_v2

@@ -7,12 +7,15 @@ from typing import Dict, List, Optional
 
 from datamodels.digicher.entities import Institutions
 
-from enrichment.geolocation.noise_words import normalize_institution_name
-from enrichment.utils.batch_requester import BatchRequester
-from lib.database.postgres.create_db_session import create_db_session
-from lib.requests.requests import make_get_request
-from lib.sanitizers.parse_specialized import parse_geolocation
-from utils.logger.logger import setup_logging
+from enrichment_lib.geolocation.noise_words import normalize_institution_name
+from enrichment_lib.utils.batch_requester import BatchRequester
+from common.database.postgres.create_db_session import create_db_session
+from common.requests.requests import make_get_request
+from common.sanitizers.parse_specialized import parse_geolocation
+from common.log.logger import setup_logging
+
+# This should probably define its own interface so it doesnt have to import the models.
+# Makes it work across pipelines. Double check needed.
 
 
 class GeolocationBatchProcessor:

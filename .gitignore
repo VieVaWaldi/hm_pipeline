@@ -1,5 +1,6 @@
 ### Custom ignores ###
 
+.mcp.json
 .vscode/
 .idea/
 .env
@@ -9,22 +10,11 @@
 /models
 .claude
 .build
+rmme/
 
-### DBT ignores ###
+### Snakemake ignores ###
 
-src/elt/transformation/target/
-src/elt/transformation/dbt_packages/
-src/elt/transformation/logs/
-src/elt/logs/
-
-src/elt/transformation/*.log
-src/elt/transformation/manifest.json
-src/elt/transformation/run_results.json
-src/elt/transformation/partial_parse.msgpack
-
-src/elt/transformation/test_results/
-
-src/elt/transformation/.user.yml
+.snakemake/
 
 ######################
 

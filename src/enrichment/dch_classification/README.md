@@ -2,7 +2,7 @@
 
 ## What was built
 
-`src/enrichment/science_classification/run_ch_classification.py`
+`src/enrichment/dch_classification/run_ch_classification.py`
 
 Classifies all ~4M projects in core_v3_final.duckdb as Cultural Heritage (CH) or not,
 using the fine-tuned BERT model. Adds two columns to the `project` table:
@@ -13,7 +13,7 @@ using the fine-tuned BERT model. Adds two columns to the `project` table:
 
 | Thing           | Path |
 |-----------------|------|
-| Script          | `src/enrichment/science_classification/run_ch_classification.py` |
+| Script          | `src/enrichment/dch_classification/run_ch_classification.py` |
 | BERT model      | `models/bert_classifier/` (safetensors + config.json) |
 | Tokenizer cache | `/home/lu72hip/.cache/huggingface/hub/models--bert-base-uncased` |
 | Production DB   | `/work/lu72hip/data/duckdb/core/core_v3_final.duckdb` (NOT ready yet) |
@@ -31,14 +31,14 @@ export PYTHONPATH=/home/lu72hip/DIGICHer/dh_pipeline/src
 
 **Temp test (no writes, uses staging DB, 5 batches):**
 ```bash
-python src/enrichment/science_classification/run_ch_classification.py --test 5
+python src/enrichment/dch_classification/run_ch_classification.py --test 5
 ```
 This reads from `path_staging_duck`, runs 5 × 2048-batch inference passes, prints seq/s
 and extrapolated time for 4M rows. Writes nothing to any DB.
 
 **Production (when final duck is ready):**
 ```bash
-python src/enrichment/science_classification/run_ch_classification.py
+python src/enrichment/dch_classification/run_ch_classification.py
 ```
 
 ## Design decisions to remember

@@ -46,8 +46,15 @@ def _iter_duck_paths(paths_by_name: Dict[str, SourcePaths]) -> Iterator[Tuple[st
 
 
 def _iter_dumps() -> Iterator[Tuple[Path, Path]]:
-    for name, label, duck_path in _iter_duck_paths(get_dumps_paths()):
+    """Dump reports are versioned: a source's "version" key (e.g. a dump date)
+    is appended to the report name, so switching a dump to a newer version
+    doesn't clobber the report generated against the previous one."""
+    paths_by_name = get_dumps_paths()
+    for name, label, duck_path in _iter_duck_paths(paths_by_name):
         report_name = f"{name}_{label}" if label else name
+        version = paths_by_name[name].get("version")
+        if version:
+            report_name = f"{report_name}_{version}"
         yield duck_path, REPORTS_ROOT / "sources" / "dumps" / f"{report_name}.md"
 
 

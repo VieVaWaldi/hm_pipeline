@@ -35,10 +35,17 @@ def resolve_data_path(relative: str) -> str:
 
 def load_source_paths_file(filename: str) -> Dict[str, SourcePaths]:
     """Loads a config/*.yaml file shaped {source_name: {path_key: relative_path}}
-    and resolves every path against the current environment."""
+    and resolves every path against the current environment. Only keys prefixed
+    "path_" are treated as paths; other keys (e.g. "version") are passed through
+    as plain metadata."""
     config_path = get_project_root_path() / "config" / filename
     raw = yaml.safe_load(config_path.read_text())
     return {
-        name: SourcePaths({key: resolve_data_path(value) for key, value in cfg.items()})
+        name: SourcePaths(
+            {
+                key: resolve_data_path(value) if key.startswith("path_") else value
+                for key, value in cfg.items()
+            }
+        )
         for name, cfg in raw.items()
     }

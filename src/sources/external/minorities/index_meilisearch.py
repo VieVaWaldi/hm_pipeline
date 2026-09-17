@@ -1,12 +1,12 @@
 """
-Minorities Meilisearch index — minorities_terms.duckdb -> Meilisearch `minorities` index.
+Minorities Meilisearch index — minorities_raw.duckdb -> Meilisearch `minorities` index.
 
 Experimental serve step: there's no core_v4 gold schema yet (see
-infra/meilisearch/README.md), so this indexes minorities_terms directly to
+infra/meilisearch/README.md), so this indexes minorities_raw directly to
 have something real to test Meilisearch's autocomplete/facet behaviour
 against, ahead of the real serve pipeline. Not wired into Snakemake.
 
-qid is already a column on minorities_terms and doubles as the primaryKey
+qid is already a column on minorities_raw and doubles as the primaryKey
 below, so every document carries it -- the frontend can build
 https://www.wikidata.org/wiki/{qid} straight from that, no extra field needed.
 
@@ -35,9 +35,9 @@ directly against the 304-row table (not the sampled report):
   Boolean toggle, not a value-list facet -- has_subgroups (derived below
   from known_subgroups; only 13/304 true).
 
-  Dropped entirely -- diaspora is 0/304 non-empty (staging.py already drops
-  every diaspora-typed row upstream), so it's excluded even as a filter --
-  an empty-everywhere facet is just dead weight in the UI.
+  Dropped entirely -- diaspora is 0/304 non-empty (loader.py's stage_filter()
+  already drops every diaspora-typed row upstream), so it's excluded even as
+  a filter -- an empty-everywhere facet is just dead weight in the UI.
 """
 
 import logging
@@ -47,7 +47,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from common.database.duck.create_connection import create_duck_connection
-from common.config.dumps import get_dumps_paths
+from common.config.external import get_external_paths
 from common.log.logger import setup_logging
 from common.log.timer import log_run_time
 from common.search.client import get_meilisearch_client
@@ -56,14 +56,14 @@ from common.search.index_duckdb_table import index_duckdb_table
 setup_logging("index_meilisearch", "minorities")
 load_dotenv()
 
-config = get_dumps_paths()["minorities"]
-TERMS_DB = Path(config["path_duck_terms"])
+config = get_external_paths()["minorities"]
+MINORITIES_DB = Path(config["path_duck"])
 INDEX_NAME = "minorities"
-TABLE_NAME = "minorities_terms"
+TABLE_NAME = "minorities_raw"
 VIEW_NAME = "minorities_index_view"
 
 logging.info("MINORITIES MEILISEARCH INDEX")
-logging.info(f"Source: {TERMS_DB}")
+logging.info(f"Source: {MINORITIES_DB}")
 logging.info(f"Index: {INDEX_NAME}")
 
 start_time = datetime.now()
@@ -80,8 +80,9 @@ task = index.update_settings(
         # outrank a hit that only matched via a nested subgroup, an alias, or
         # a language/country name. search_keywords (Phase 2 self-designation
         # terms -- native label, demonym, English aliases; see
-        # enrich_terms.py) sits right behind group_name_en since it's the
-        # piece that makes e.g. "Lapps" or "gypsies" actually find something.
+        # loader.py's enrich_terms()) sits right behind group_name_en since
+        # it's the piece that makes e.g. "Lapps" or "gypsies" actually find
+        # something.
         "searchableAttributes": [
             "group_name_en",
             "search_keywords",
@@ -121,11 +122,11 @@ task = index.update_settings(
 client.wait_for_task(task.task_uid)
 logging.info("Index settings applied")
 
-con = create_duck_connection(str(TERMS_DB))
+con = create_duck_connection(str(MINORITIES_DB))
 # has_subgroups is a serving-layer convenience (a boolean toggle facet),
 # not a fact about the data itself, so it's derived here via a view rather
-# than persisted on minorities_terms -- keeps enrich_terms.py's output as
-# pure Phase 2 data.
+# than persisted on minorities_raw -- keeps loader.py's output free of
+# serving-specific fields.
 con.execute(f'CREATE OR REPLACE VIEW "{VIEW_NAME}" AS SELECT *, len(known_subgroups) > 0 AS has_subgroups FROM "{TABLE_NAME}"')
 total = index_duckdb_table(con, VIEW_NAME, INDEX_NAME, primary_key="qid", replace_all=True)
 con.close()

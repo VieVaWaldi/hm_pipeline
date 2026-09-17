@@ -1,4 +1,4 @@
-gst"""
+"""
 Heritage Monitor Pipeline — Snakemake DAG.
 
 Orchestration only: this file and rules/*.smk wire together the ordered steps.
@@ -31,6 +31,7 @@ workdir: str(REPO_ROOT)
 
 from common.config.api_runner import get_query_settings
 from common.config.dumps import get_dumps_paths
+from common.config.external import get_external_paths
 
 QUERY_SOURCES = ["arxiv", "cordis", "coreac"]  # meta_heritage has no queries
 
@@ -47,7 +48,7 @@ rule all:
     input:
         rules.load_incremental_sources.input,
         rules.ingest_dumps.input,
-        rules.stage_minorities_candidates_2.output,
+        rules.load_minorities.output,
 
 
 # Sources left out of `sources_local` (see below): coreac isn't ready for an
@@ -76,4 +77,4 @@ rule sources_local:
     input:
         _load_targets(exclude=LOCAL_EXCLUDE_SOURCES),
         rules.load_ror_dump.output,
-        rules.stage_minorities_candidates_2.output,
+        rules.load_minorities.output,

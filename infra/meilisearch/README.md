@@ -60,7 +60,7 @@ TABLE`), otherwise a row that disappeared from the source stays behind forever, 
 `add_documents()` only ever adds/updates.
 
 Verified end-to-end (running Meilisearch v1.53.2) against
-`data/duckdb/sources/minorities_terms.duckdb` → 304/304 rows, with full-text search,
+`data/duckdb/sources/minorities_raw.duckdb` → 304/304 rows, with full-text search,
 autocomplete-style prefix matching, and facets (including a derived boolean and numeric
 range/`facetStats`) all confirmed working — see
 `src/sources/external/minorities/index_meilisearch.py`. Not wired into any Snakemake rule yet

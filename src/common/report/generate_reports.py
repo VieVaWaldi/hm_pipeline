@@ -2,6 +2,7 @@
 
 Mirrors the config -> src/sources / src/pipelines structure under reports/:
     reports/sources/dumps/<name>[_<extra>].md      <- config/dumps.yaml
+    reports/sources/external/<name>[_<extra>].md   <- config/external.yaml
     reports/sources/apis/<source>/<query_id>.md    <- config/api_runner.yaml
     reports/pipelines/<pipeline>/<stage>.md        <- config/pipelines.yaml
 
@@ -16,6 +17,7 @@ from typing import Dict, Iterator, Optional, Tuple
 
 from common.config.api_runner import get_query_settings
 from common.config.dumps import get_dumps_paths
+from common.config.external import get_external_paths
 from common.config.pipelines import get_pipeline_paths
 from common.config.source_paths import SourcePaths
 from common.file_handling.path_utils import get_project_root_path
@@ -49,6 +51,12 @@ def _iter_dumps() -> Iterator[Tuple[Path, Path]]:
         yield duck_path, REPORTS_ROOT / "sources" / "dumps" / f"{report_name}.md"
 
 
+def _iter_external() -> Iterator[Tuple[Path, Path]]:
+    for name, label, duck_path in _iter_duck_paths(get_external_paths()):
+        report_name = f"{name}_{label}" if label else name
+        yield duck_path, REPORTS_ROOT / "sources" / "external" / f"{report_name}.md"
+
+
 def _iter_apis() -> Iterator[Tuple[Path, Path]]:
     for source, source_cfg in get_query_settings().items():
         for query_id, query in source_cfg.queries.items():
@@ -64,7 +72,7 @@ def _iter_pipelines() -> Iterator[Tuple[Path, Path]]:
 
 
 def generate_all_reports(only: Optional[str] = None) -> None:
-    for duck_path, out_path in [*_iter_dumps(), *_iter_apis(), *_iter_pipelines()]:
+    for duck_path, out_path in [*_iter_dumps(), *_iter_external(), *_iter_apis(), *_iter_pipelines()]:
         if only and only not in str(out_path):
             continue
         if not duck_path.exists():

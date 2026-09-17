@@ -1,4 +1,5 @@
 import duckdb
+import meilisearch
 import numpy as np
 import pandas as pd
 
@@ -14,6 +15,7 @@ def index_duckdb_table(
     primary_key: str,
     batch_size: int = DEFAULT_BATCH_SIZE,
     replace_all: bool = False,
+    client: meilisearch.Client | None = None,
 ) -> int:
     """Loads every row of `table` into a Meilisearch index, paginated.
 
@@ -29,9 +31,15 @@ def index_duckdb_table(
     the index to match, matching the rest of the pipeline's CREATE OR
     REPLACE idempotence model instead of a pure merge.
 
+    client defaults to this repo's own dev/test Meilisearch instance
+    (get_meilisearch_client(), config/config.yaml's search.host/port). Pass
+    an explicit client to index into a different instance instead — e.g.
+    pushing a finished index over to a downstream webapp's own Meilisearch,
+    which isn't this repo's config to own.
+
     Returns the number of documents indexed.
     """
-    client = get_meilisearch_client()
+    client = client or get_meilisearch_client()
     index = client.index(index_name)
 
     if replace_all:

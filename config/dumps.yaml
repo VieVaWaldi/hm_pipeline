@@ -14,3 +14,6 @@ minorities:
   path_duck_staging: data/duckdb/sources/minorities_staging.duckdb
   path_duck_staging_2: data/duckdb/sources/minorities_staging_2.duckdb
   path_duck_terms: data/duckdb/sources/minorities_terms.duckdb
+oa_topics:
+  path_raw: data/pile/oa_topics/openalex_topic_mapping.csv
+  path_duck: data/duckdb/sources/oa_topics_raw.duckdb

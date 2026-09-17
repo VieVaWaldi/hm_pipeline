@@ -1,4 +1,5 @@
 import duckdb
+import numpy as np
 import pandas as pd
 
 from common.search.client import get_meilisearch_client
@@ -12,17 +13,30 @@ def index_duckdb_table(
     index_name: str,
     primary_key: str,
     batch_size: int = DEFAULT_BATCH_SIZE,
+    replace_all: bool = False,
 ) -> int:
     """Loads every row of `table` into a Meilisearch index, paginated.
 
     Meilisearch upserts by primary_key and creates the index on first write
-    if it doesn't exist yet, so re-running this is idempotent — matches the
-    rest of the pipeline's idempotence rule.
+    if it doesn't exist yet, which is idempotent for rows that still exist —
+    but a row that *disappeared* from `table` since the last run (e.g. a
+    staging table whose filtering logic changed, or a row that got folded
+    into another one) stays behind in the index forever, since
+    add_documents() only ever adds/updates. Pass replace_all=True for any
+    table that's a full point-in-time snapshot each run (i.e. built via
+    CREATE OR REPLACE TABLE, which is every staging table in this repo) —
+    it clears the index first so a shrinking source table actually shrinks
+    the index to match, matching the rest of the pipeline's CREATE OR
+    REPLACE idempotence model instead of a pure merge.
 
     Returns the number of documents indexed.
     """
     client = get_meilisearch_client()
     index = client.index(index_name)
+
+    if replace_all:
+        task = index.delete_all_documents()
+        client.wait_for_task(task.task_uid)
 
     total = 0
     offset = 0
@@ -45,4 +59,25 @@ def _dataframe_to_documents(df: pd.DataFrame) -> list[dict]:
     for col in df.columns:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
             df[col] = df[col].apply(lambda v: v.isoformat() if v is not None else None)
-    return df.to_dict(orient="records")
+    # Sanitize on the plain dicts, not by reassigning into a DataFrame column:
+    # a column of e.g. [1.0, None] round-tripped through Series.apply() gets
+    # its dtype re-inferred on assignment, and pandas upcasts back to
+    # float64 — silently turning None back into NaN, undoing the line above.
+    return [{k: _to_json_safe(v) for k, v in record.items()} for record in df.to_dict(orient="records")]
+
+
+def _to_json_safe(value):
+    # DuckDB LIST/STRUCT columns come back from fetchdf() as numpy arrays
+    # (elements possibly numpy scalars, or dicts for STRUCT — themselves
+    # possibly containing numpy scalars), none of which json.dumps accepts
+    # directly. Recurse so an arbitrarily nested LIST(STRUCT(...)) column
+    # (e.g. known_subgroups) round-trips to plain lists/dicts/scalars.
+    if isinstance(value, np.ndarray):
+        value = value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, list):
+        return [_to_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _to_json_safe(v) for k, v in value.items()}
+    return value

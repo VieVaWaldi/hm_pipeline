@@ -13,3 +13,4 @@ minorities:
   path_duck: data/duckdb/sources/minorities_raw.duckdb
   path_duck_staging: data/duckdb/sources/minorities_staging.duckdb
   path_duck_staging_2: data/duckdb/sources/minorities_staging_2.duckdb
+  path_duck_terms: data/duckdb/sources/minorities_terms.duckdb

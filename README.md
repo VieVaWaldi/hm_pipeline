@@ -9,8 +9,10 @@ WIP Singularity/ Docker...
 ```bash
 ./orchestration/run_all_sources.sh extract       # extraction only
 ./orchestration/run_all_sources.sh load --report # load, then per-source reports
-
 # Optional add -p/--parallel <N>
+
+# TO just get reports for all duckdb files
+uv run python -m common.report.generate_reports
 ```
 
 Go to [Orchestration Documentation](orchestration/README.md) for more snakemake commands.

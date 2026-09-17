@@ -7,13 +7,16 @@ Only for sources/apis/ — see extract.smk.
 """
 
 
-def _load_targets(exclude=()):
+def _load_targets(exclude=(), only_queries=None):
+    """only_queries: optional {source: [query_id, ...]} to restrict a source to
+    a subset of its configured queries instead of all of them."""
     settings = get_query_settings()
+    only_queries = only_queries or {}
     targets = []
     for source in QUERY_SOURCES:
         if source in exclude:
             continue
-        for query_id in settings[source].queries:
+        for query_id in only_queries.get(source, settings[source].queries):
             targets.append(f"data/checkpoints/loading/{source}_{query_id}/mtime.cp")
     return targets
 

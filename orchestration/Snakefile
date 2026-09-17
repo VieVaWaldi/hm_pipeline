@@ -78,3 +78,31 @@ rule sources_local:
         _load_targets(exclude=LOCAL_EXCLUDE_SOURCES),
         rules.load_ror_dump.output,
         rules.load_minorities.output,
+
+
+# core_v3_sources source set: cordis's "all cordis docs" query
+# (full_projects_no_pdfs, no pdf subset) plus the ror and openaire dumps. Used
+# to verify loader idempotency ahead of the core_v3 rebuild -- sources only,
+# not the core_v3 pipeline itself (see rules/pipeline/core_v3/enrichment.smk
+# for that). Unlike `sources_local` this includes openaire, so it's HPC-only
+# (run with --workflow-profile orchestration/profiles/slurm), not part of the
+# local-dev-safe set.
+CORE_V3_SOURCES_EXCLUDE = ["arxiv", "coreac"]
+CORE_V3_SOURCES_QUERY_OVERRIDES = {"cordis": ["full_projects_no_pdfs"]}
+
+
+rule extract_core_v3_sources:
+    """Extraction-only half of core_v3_sources."""
+    input:
+        _extract_targets(exclude=CORE_V3_SOURCES_EXCLUDE, only_queries=CORE_V3_SOURCES_QUERY_OVERRIDES),
+        rules.download_ror_dump.output,
+        rules.download_openaire_dump.output,
+
+
+rule core_v3_sources:
+    """Extract + load target: cordis (full_projects_no_pdfs only) + ror_dump +
+    openaire_dump. See extract_core_v3_sources."""
+    input:
+        _load_targets(exclude=CORE_V3_SOURCES_EXCLUDE, only_queries=CORE_V3_SOURCES_QUERY_OVERRIDES),
+        rules.load_ror_dump.output,
+        rules.load_openaire_dump.output,

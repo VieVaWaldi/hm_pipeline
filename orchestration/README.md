@@ -74,6 +74,15 @@ The openaire dump is 100s of GB and HPC-only (see "Running Individually"
 below); coreac just isn't part of the default local run. Run either by name
 when you actually want it.
 
+`core_v3_sources` / `extract_core_v3_sources` are a separate, HPC-only source
+set used to verify loader idempotency ahead of the core_v3 rebuild: cordis
+restricted to its `full_projects_no_pdfs` query ("all cordis docs", no pdf
+subset) plus `ror_dump` and `openaire_dump` — no `arxiv`, no `coreac`. Sources
+only, not the core_v3 pipeline itself (see `rules/pipeline/core_v3/enrichment.smk`
+for that, under "Running Individually" below). Unlike `sources_local` this
+includes openaire, so run it with `--workflow-profile orchestration/profiles/slurm`,
+not through `run_all_sources.sh`.
+
 ### Running Individually
 
 **api_runner:**

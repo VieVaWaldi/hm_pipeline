@@ -7,6 +7,9 @@ dev:
     url: wehrenberger@localhost
     port: '5432'
     db_name: db_digicher_v2
+  search:
+    host: http://localhost
+    port: '7700'
 prod:
   checkpoint_path: data/checkpoints/
   logging_path: data/logs/
@@ -17,3 +20,6 @@ prod:
     url: lu72hip@localhost
     port: '5433'
     db_name: db_digicher_v2
+  search:
+    host: http://localhost
+    port: '7700'

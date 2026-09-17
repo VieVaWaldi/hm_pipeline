@@ -16,6 +16,11 @@ class DBSettings(BaseModel):
     db_name: str
 
 
+class SearchSettings(BaseModel):
+    host: str
+    port: str
+
+
 class Settings(BaseModel):
     env: str
     checkpoint_path: Path
@@ -24,6 +29,7 @@ class Settings(BaseModel):
     orchestration_path: Path
     hpc_root: str = ""
     db: DBSettings
+    search: SearchSettings
 
 
 @lru_cache

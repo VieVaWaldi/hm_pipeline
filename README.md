@@ -56,7 +56,7 @@ We follow the Medallion & CQRS Architectures:
 **CQRS**, [learn More](https://martinfowler.com/bliki/CQRS.html):
 
 1. Meaning core is in duckdb as a source of truth.
-2. And we create versioned opensearch indices as task-based UIs, that are ready to be deployed
+2. And we create versioned Meilisearch indices as task-based UIs, that are ready to be deployed
 
 ### High Level Overview
 
@@ -76,7 +76,7 @@ We follow the Medallion & CQRS Architectures:
 5. **Enrichment** (the ML steps) + **Model** (derived entities, e.g. `collaboration`:
    * what used to be hand-written postgres mat views) → `core_vN_gold.duckdb`.
    * → **gold**: this is canon core_v4.
-6. **Serve**: query gold core_v4 to build denormalized tables in OpenSearch,
+6. **Serve**: query gold core_v4 to build denormalized tables in Meilisearch,
    shipped to the webapp.
 
 ### Analysis stage, in detail
@@ -118,13 +118,16 @@ Even relations is an entity that has samples.
 ## Project Structure
 
 ```
+infra/                              # standalone services the pipeline talks to (not Snakemake jobs)
+└── meilisearch/                    # docker-compose (dev) / Singularity (HPC) — see infra/meilisearch/README.md
+
 orchestration/                     # DAG only, no pipeline logic lives here
 ├── Snakefile
 ├── rules/
 │   ├── extract.smk / load.smk     # sources/ → duckdb bronze tables
 │   ├── merge.smk / analysis.smk   # → silver
 │   ├── enrichment.smk / model.smk # → gold = canon core_v4
-│   └── serve.smk                  # → opensearch
+│   └── serve.smk                  # → meilisearch
 ├── envs/                          # per-rule container/conda refs (docker:// images)
 └── profiles/slurm/                # --sdm apptainer, resources, monthly-poll trigger
 
@@ -142,7 +145,7 @@ src/
 │   │   ├── analysis/    # silver — dedup projects/orgs, feeds merge iteratively
 │   │   ├── enrichment/  # gold — orchestrates ordered calls into enrichment/
 │   │   ├── model/       # gold — derived entities (collaboration, etc.) → canon core_v4
-│   │   └── serve/       # → denormalized OpenSearch indices
+│   │   └── serve/       # → denormalized Meilisearch indices
 │   └── core_v3/         # frozen reference docs only, not executed
 ├── common/           # pydantic-settings config, db clients, file handling, requests, sanitizers
 │   ├── api_runner/   # run_extractor.py/run_loader.py (IExtractor/ILoader defined in-file) + checkpoint_manager — only for sources/apis/
@@ -166,5 +169,7 @@ Find more information about the specific sources in the [Source Documentation](s
 @Walter rework this section
 
 * Duck DB (version): Source of truth DB for the core models (since core_v3)
-* OpenSearch: For the webapp, takes denormalized tables from core data model ...
+* Meilisearch: For the webapp, takes denormalized tables from core data model — see [infra/meilisearch/README.md](infra/meilisearch/README.md). Talk to Meilisearch with  http://localhost:7700
 * Postgres: Not really used anymore
+## Serve
+

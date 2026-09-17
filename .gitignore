@@ -12,6 +12,7 @@
 .claude
 .build
 rmme/
+*.sif
 
 ### Snakemake ignores ###
 

@@ -9,5 +9,35 @@ services:
     volumes:
       - meili_data:/meili_data
 
+  # Same image/version as heritagemonitor's infra/docker-compose.yml, kept in
+  # sync deliberately. Ports shifted off 9200/9600 since heritagemonitor's own
+  # hm-opensearch container already holds those on a shared dev machine.
+  opensearch:
+    image: opensearchproject/opensearch:3.8.0
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=${OPENSEARCH_SECURITY_DISABLED:-true}
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-}
+      - "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g"
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "${OPENSEARCH_PORT:-9201}:9200"
+      - "${OPENSEARCH_PERF_PORT:-9601}:9600"
+    volumes:
+      - os_data:/usr/share/opensearch/data
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   meili_data:
+  os_data:

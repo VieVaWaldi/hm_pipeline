@@ -1,0 +1,39 @@
+qid,group_name_en,is_titular_majority,note
+Q237534,Austrians,true,Majority population of Austria
+Q133255,Bulgarians,true,Majority population of Bulgaria
+Q167420,Croats,true,Majority population of Croatia
+Q10464898,Cypriots,true,National identity of Cyprus (does not distinguish Greek/Turkish Cypriot)
+Q164714,Danes,true,Majority population of Denmark
+Q200569,Dutch,true,Majority population of the Netherlands
+Q42406,English people,true,Largest constituent nation of the United Kingdom (UK has no single titular ethnicity)
+Q121842,French,true,Majority population of France
+Q120068720,French people,true,Majority population of France (separate Wikidata entity from French)
+Q18973,Georgians,true,Majority population of Georgia
+Q42884,Germans,true,Majority population of Germany
+Q539051,Greeks,true,Majority population of Greece
+Q31283862,Modern Greek people,true,Majority population of Greece (near-duplicate Wikidata entity of Greeks)
+Q133032,Hungarians,true,Majority population of Hungary
+Q191356,Icelanders,true,Majority population of Iceland
+Q170826,Irish people,true,Majority population of Ireland
+Q50001,Italians,true,Majority population of Italy
+Q49540,Latvians,true,Majority population of Latvia
+Q186192,Lithuanians,true,Majority population of Lithuania
+Q1092641,Luxembourgers,true,Majority population of Luxembourg
+Q2436423,Macedonians,true,Majority population of North Macedonia
+Q1286876,Maltese people,true,Majority population of Malta
+Q188779,Norwegians,true,Majority population of Norway
+Q1026,Poles,true,Majority population of Poland
+Q178630,Portuguese,true,Majority population of Portugal
+Q485150,Romanians,true,Majority population of Romania
+Q127885,Serbs,true,Majority population of Serbia
+Q171336,Slovaks,true,Majority population of Slovakia
+Q15863,Slovenes,true,Majority population of Slovenia
+Q160894,Spaniards,true,Majority population of Spain
+Q188353,Welsh people,true,Titular population of Wales
+Q7994501,White British,true,UK census-majority ethnic category
+Q940348,Bosniaks,false,Ambiguous: plurality (not sole majority) of Bosnia and Herzegovina; appears mostly as a minority-context entry across its other 17 listed countries -- kept in
+Q242485,Flemish people,false,Ambiguous: largest linguistic community (~60%) of Belgium; Belgium has no single titular ethnicity the way most other listed states do -- kept in
+Q84072,Turkish people,false,Majority of Turkey -- which is excluded from the European country allowlist -- so not majority of any of its actually-listed countries; correctly a minority entry there
+Q49542,Russians,false,Majority of Russia -- which is excluded from the European country allowlist -- so not majority of any of its actually-listed countries (Kazakhstan/Latvia/Ukraine); correctly a minority entry there
+Q842323,Khalkhas,false,Majority of Mongolia -- which slipped into its listed countries alongside genuinely-European ones -- but a real minority in every other listed country (Belgium/Czech Republic/Germany/Kazakhstan/UK); kept in
+Q273824,South Slavs,false,Umbrella linguistic/cultural grouping; not the titular population of any single listed state itself

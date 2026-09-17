@@ -27,6 +27,7 @@ dependencies = [
     "snakemake",
     "snakemake-executor-plugin-slurm",
     "spacy",
+    "SPARQLWrapper",
     "sqlalchemy==1.4.54",
     "torch",
     "transformers",

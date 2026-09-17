@@ -1,4 +1,4 @@
-"""
+gst"""
 Heritage Monitor Pipeline — Snakemake DAG.
 
 Orchestration only: this file and rules/*.smk wire together the ordered steps.
@@ -40,12 +40,14 @@ include: "rules/api_runner/load.smk"
 include: "rules/dumps.smk"
 include: "rules/pipeline/core_v3/enrichment.smk"
 include: "rules/external/meta_heritage.smk"
+include: "rules/external/minorities.smk"
 
 
 rule all:
     input:
         rules.load_incremental_sources.input,
         rules.ingest_dumps.input,
+        rules.stage_minorities_candidates_2.output,
 
 
 # Sources left out of `sources_local` (see below): coreac isn't ready for an
@@ -58,17 +60,20 @@ LOCAL_EXCLUDE_SOURCES = ["coreac"]
 
 rule extract_sources_local:
     """Extraction-only half of sources_local: pulls raw data (api extract +
-    ror download) but doesn't load anything into duckdb."""
+    ror download + minorities discovery) but doesn't load anything into
+    duckdb."""
     input:
         _extract_targets(exclude=LOCAL_EXCLUDE_SOURCES),
         rules.download_ror_dump.output,
+        rules.discover_minorities_candidates.output,
 
 
 rule sources_local:
     """Extract + load target for run_all_sources.sh: every incremental api
-    source except LOCAL_EXCLUDE_SOURCES, plus the ror dump. Deliberately a
-    narrower set than `all` — `all` still includes coreac and the openaire
-    dump for full/HPC runs."""
+    source except LOCAL_EXCLUDE_SOURCES, plus the ror dump and minorities.
+    Deliberately a narrower set than `all` — `all` still includes coreac and
+    the openaire dump for full/HPC runs."""
     input:
         _load_targets(exclude=LOCAL_EXCLUDE_SOURCES),
         rules.load_ror_dump.output,
+        rules.stage_minorities_candidates_2.output,

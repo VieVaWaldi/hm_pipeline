@@ -14,6 +14,7 @@ All of these Sources have their very own considerations and therefore specific e
 
 **external/** — not core_v4 scope, kept for something else
   * MetaHeritage
+  * [Minorities](external/minorities/README.md) — Wikidata minority-group discovery, feeds the planned minority filter
 
 Data Source we are considering to add:
 

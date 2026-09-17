@@ -28,7 +28,7 @@ job as the serve step**:
 
 ```bash
 # once: build the .sif from the same image used in dev
-apptainer pull infra/meilisearch/meilisearch.sif docker://getmeili/meilisearch:v1.11
+apptainer pull infra/meilisearch/meilisearch.sif docker://getmeili/meilisearch:v1.53.2
 
 # inside the serve job:
 apptainer instance start \
@@ -51,9 +51,18 @@ other `.sif`).
 
 ## Loading a duckdb table into an index
 
-`common.search.index_duckdb_table.index_duckdb_table(con, table, index_name, primary_key)`
-paginates a duckdb table into an index, batched, waiting for each batch's indexing task to
-finish before returning — so "the call returned" means "it's searchable", not "it's queued".
-Verified end-to-end against `data/duckdb/sources/minorities_raw.duckdb` → 490/490 rows,
-full-text search hit. Not wired into any Snakemake rule yet — that happens once
-`src/pipelines/core_v4/serve/` exists and there's a real gold schema to decide indices from.
+`common.search.index_duckdb_table.index_duckdb_table(con, table, index_name, primary_key,
+replace_all=False)` paginates a duckdb table into an index, batched, waiting for each batch's
+indexing task to finish before returning — so "the call returned" means "it's searchable", not
+"it's queued". `replace_all=True` clears the index first — needed for any table that's a full
+point-in-time snapshot each run (every staging table in this repo, built via `CREATE OR REPLACE
+TABLE`), otherwise a row that disappeared from the source stays behind forever, since
+`add_documents()` only ever adds/updates.
+
+Verified end-to-end (running Meilisearch v1.53.2) against
+`data/duckdb/sources/minorities_terms.duckdb` → 304/304 rows, with full-text search,
+autocomplete-style prefix matching, and facets (including a derived boolean and numeric
+range/`facetStats`) all confirmed working — see
+`src/sources/external/minorities/index_meilisearch.py`. Not wired into any Snakemake rule yet
+— that happens once `src/pipelines/core_v4/serve/` exists and there's a real gold schema to
+decide indices from.

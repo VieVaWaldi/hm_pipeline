@@ -10,6 +10,9 @@ dev:
   search:
     host: http://localhost
     port: '7700'
+  opensearch:
+    host: http://localhost
+    port: '9201'
 prod:
   checkpoint_path: data/checkpoints/
   logging_path: data/logs/
@@ -23,3 +26,6 @@ prod:
   search:
     host: http://localhost
     port: '7700'
+  opensearch:
+    host: http://localhost
+    port: '9201'

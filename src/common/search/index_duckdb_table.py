@@ -2,8 +2,10 @@ import duckdb
 import meilisearch
 import numpy as np
 import pandas as pd
+from opensearchpy import OpenSearch
+from opensearchpy.helpers import bulk as opensearch_bulk
 
-from common.search.client import get_meilisearch_client
+from common.search.client import get_meilisearch_client, get_opensearch_client
 
 DEFAULT_BATCH_SIZE = 1000
 
@@ -54,6 +56,58 @@ def index_duckdb_table(
             break
         task = index.add_documents(_dataframe_to_documents(df), primary_key=primary_key)
         client.wait_for_task(task.task_uid)  # add_documents is async — block so callers can rely on "returned means indexed"
+        total += len(df)
+        offset += batch_size
+    return total
+
+
+def index_duckdb_table_opensearch(
+    con: duckdb.DuckDBPyConnection,
+    table: str,
+    index_name: str,
+    id_field: str,
+    mapping: dict,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    replace_all: bool = False,
+    client: OpenSearch | None = None,
+) -> int:
+    """Loads every row of `table` into an OpenSearch index, paginated.
+
+    Unlike Meilisearch, OpenSearch needs an explicit mapping (field types)
+    declared before the first document lands, and that mapping is largely
+    immutable once set -- so `mapping` is a required argument here, not an
+    index-settings call made separately, and replace_all=True **deletes and
+    recreates the index** (mapping included) rather than just clearing
+    documents, since a table's column set changing between runs would
+    otherwise leave a stale mapping behind. This is the simplest fit for
+    this repo's CREATE OR REPLACE TABLE full-snapshot idiom -- a bigger
+    dataset with a zero-downtime requirement would want a timestamped index
+    + alias swap instead, not worth it for an experimental/dev-only index.
+
+    client defaults to this repo's own dev OpenSearch instance
+    (get_opensearch_client(), config/config.yaml's opensearch.host/port).
+
+    Returns the number of documents indexed.
+    """
+    client = client or get_opensearch_client()
+
+    if replace_all and client.indices.exists(index=index_name):
+        client.indices.delete(index=index_name)
+    if not client.indices.exists(index=index_name):
+        client.indices.create(index=index_name, body={"mappings": mapping})
+
+    total = 0
+    offset = 0
+    while True:
+        df = con.execute(f'SELECT * FROM "{table}" LIMIT {batch_size} OFFSET {offset}').fetchdf()
+        if df.empty:
+            break
+        documents = _dataframe_to_documents(df)
+        actions = (
+            {"_index": index_name, "_id": doc[id_field], "_source": doc}
+            for doc in documents
+        )
+        opensearch_bulk(client, actions)
         total += len(df)
         offset += batch_size
     return total

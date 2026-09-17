@@ -30,6 +30,7 @@ class Settings(BaseModel):
     hpc_root: str = ""
     db: DBSettings
     search: SearchSettings
+    opensearch: SearchSettings
 
 
 @lru_cache

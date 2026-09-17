@@ -13,6 +13,7 @@ dependencies = [
     "meilisearch",
     "notebook",
     "openai",
+    "opensearch-py",
     "pandas",
     "protobuf",
     "psutil",

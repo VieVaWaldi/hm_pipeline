@@ -86,6 +86,8 @@ def generate_all_reports(only: Optional[str] = None) -> None:
             logging.info(f"Skipping {duck_path} (not built yet)")
             continue
 
+        size_gb = duck_path.stat().st_size / (1024**3)
+        logging.info(f"Building report for {duck_path} ({size_gb:.1f} GB) ...")
         report = build_database_report(name=out_path.stem, path=duck_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(render_database_report(report))

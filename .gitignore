@@ -7,7 +7,6 @@
 /logs
 /data
 /checkpoints
-/models
 /reports
 .claude
 .build

@@ -1,7 +1,7 @@
 """
 CH (Cultural Heritage) classification of all projects in core_v3_final.duckdb.
 
-Uses the fine-tuned BERT model (models/bert_classifier/) to classify each project
+Uses the fine-tuned BERT model (data/models/bert_classifier/) to classify each project
 as CH or not-CH. Adds two columns to the project table:
   - is_ch  BOOLEAN  : True if P(CH) >= THRESHOLD
   - pred   FLOAT    : P(CH) — probability of being a CH project
@@ -331,7 +331,7 @@ def main() -> None:
         if args.test
         else "/work/lu72hip/data/duckdb/core/core_v3_test_final.duckdb"
     )
-    model_path = get_project_root_path() / "models" / "bert_classifier"
+    model_path = get_project_root_path() / "data" / "models" / "bert_classifier"
 
     logging.info(f"Mode      : {'TEST (no writes)' if args.test else 'PRODUCTION'}")
     logging.info(f"DB path   : {db_path}")

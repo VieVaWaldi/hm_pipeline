@@ -14,7 +14,7 @@ using the fine-tuned BERT model. Adds two columns to the `project` table:
 | Thing           | Path |
 |-----------------|------|
 | Script          | `src/enrichment/dch_classification/run_ch_classification.py` |
-| BERT model      | `models/bert_classifier/` (safetensors + config.json) |
+| BERT model      | `data/models/bert_classifier/` (safetensors + config.json) |
 | Tokenizer cache | `/home/lu72hip/.cache/huggingface/hub/models--bert-base-uncased` |
 | Production DB   | `/work/lu72hip/data/duckdb/core/core_v3_final.duckdb` (NOT ready yet) |
 | Staging DB      | `/work/lu72hip/data/duckdb/core/core_v3.duckdb` (use for tests) |

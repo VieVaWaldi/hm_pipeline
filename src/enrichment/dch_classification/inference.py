@@ -2,7 +2,7 @@ import torch
 from transformers import BertForSequenceClassification, BertTokenizer
 
 # Load the saved model
-model_path = "models/bert_classifier"
+model_path = "data/models/bert_classifier"
 model = BertForSequenceClassification.from_pretrained(model_path)
 tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
 

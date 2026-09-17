@@ -3,7 +3,7 @@
 Harvests a candidate list of European minority groups from Wikidata via SPARQL,
 then narrows it to a working list in DuckDB. Feeds the platform's planned
 minority filter dimension (see [`6_1_minorities.md`](6_1_minorities.md) and
-[`planning/Plan.md`](planning/Plan.md) for the full research rationale).
+[`Plan.md`](Plan.md) for the full research rationale).
 
 Structurally like `sources/dumps/`: a one-shot harvest against a live external
 endpoint (not checkpointed like `sources/apis/`), staged into DuckDB rather
@@ -36,7 +36,7 @@ than loaded straight into Postgres.
      with a note on why); rolls up any remaining row whose `part_of` matches
      another surviving row (e.g. the Sámi subgroups) into a
      `known_subgroups` column on the parent.
-   - **term enrichment** (Phase 2, per `planning/Plan.md`) — harvests
+   - **term enrichment** (Phase 2, per `Plan.md`) — harvests
      self-designation terms for every surviving group from Wikidata: native
      label (`P1705`), demonym (`P1549`), English aliases (`skos:altLabel`,
      `lang="en"`). A term in a non-Latin script can't match English project

@@ -8,6 +8,7 @@
 /data
 /checkpoints
 /models
+/reports
 .claude
 .build
 rmme/

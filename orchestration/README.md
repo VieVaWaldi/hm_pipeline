@@ -38,10 +38,41 @@ On the HPC:
 uv run snakemake --workflow-profile orchestration/profiles/slurm all
 ```
 
+`./run_all_sources.sh` wraps the local-dev-safe source set (see `sources_local`
+below), split into an extraction step and a load step:
+
+```bash
+./orchestration/run_all_sources.sh extract           # extraction only, no load
+./orchestration/run_all_sources.sh load              # extract + load (also the default)
+./orchestration/run_all_sources.sh load --report     # extract + load, then per-source reports
+./orchestration/run_all_sources.sh --parallel 8      # override Snakemake's --cores (default 4)
+```
+
+`--report` (only valid with `load`) (re)generates each source's markdown
+data-profile report afterwards (see `src/common/report/`). It's this script's
+own flag, not Snakemake's built-in `--report <file>` (which renders an HTML
+run summary, a different thing). `--parallel N` is just this script's name
+for Snakemake's own `--cores N` — Snakemake already runs independent jobs
+(e.g. the arxiv/cordis extractions) concurrently once enough cores are
+available; this flag exposes that budget instead of hardcoding it.
+
+Equivalent bare Snakemake targets, if you don't want the wrapper:
+```bash
+uv run snakemake -s orchestration/Snakefile --cores 4 extract_sources_local  # extract only
+uv run snakemake -s orchestration/Snakefile --cores 4 sources_local          # extract + load
+```
+
 `all` covers incremental extraction/loading plus the versioned bulk dumps
 (ror_dump, openaire_dump). It does **not** include `openalex_dump` (corev5
 scope), `rules/pipeline/core_v3/enrichment.smk`, or `meta_heritage.smk` (all
 postgres-backed, run by name only) — see each rule file's docstring.
+
+`sources_local` / `extract_sources_local` are a narrower, local-dev-safe
+subset of `all`: every incremental api source except `LOCAL_EXCLUDE_SOURCES`
+(currently just `coreac`), plus `ror_dump` — no `coreac`, no `openaire_dump`.
+The openaire dump is 100s of GB and HPC-only (see "Running Individually"
+below); coreac just isn't part of the default local run. Run either by name
+when you actually want it.
 
 ### Running Individually
 

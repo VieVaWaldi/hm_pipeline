@@ -46,3 +46,29 @@ rule all:
     input:
         rules.load_incremental_sources.input,
         rules.ingest_dumps.input,
+
+
+# Sources left out of `sources_local` (see below): coreac isn't ready for an
+# unattended default run, and the openaire dump is excluded structurally —
+# `sources_local` simply never lists `stage_openaire_dump`/`ingest_dumps` as
+# input, since it's 100s of GB and HPC-only (run `load_openaire_dump` /
+# `stage_openaire_dump` by name on the HPC instead — see orchestration/README.md).
+LOCAL_EXCLUDE_SOURCES = ["coreac"]
+
+
+rule extract_sources_local:
+    """Extraction-only half of sources_local: pulls raw data (api extract +
+    ror download) but doesn't load anything into duckdb."""
+    input:
+        _extract_targets(exclude=LOCAL_EXCLUDE_SOURCES),
+        rules.download_ror_dump.output,
+
+
+rule sources_local:
+    """Extract + load target for run_all_sources.sh: every incremental api
+    source except LOCAL_EXCLUDE_SOURCES, plus the ror dump. Deliberately a
+    narrower set than `all` — `all` still includes coreac and the openaire
+    dump for full/HPC runs."""
+    input:
+        _load_targets(exclude=LOCAL_EXCLUDE_SOURCES),
+        rules.load_ror_dump.output,

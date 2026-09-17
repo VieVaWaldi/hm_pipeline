@@ -7,10 +7,12 @@ Only for sources/apis/ — see extract.smk.
 """
 
 
-def _load_targets():
+def _load_targets(exclude=()):
     settings = get_query_settings()
     targets = []
     for source in QUERY_SOURCES:
+        if source in exclude:
+            continue
         for query_id in settings[source].queries:
             targets.append(f"data/checkpoints/loading/{source}_{query_id}/mtime.cp")
     return targets

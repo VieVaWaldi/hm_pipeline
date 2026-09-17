@@ -11,10 +11,12 @@ meta_heritage.smk.
 """
 
 
-def _extract_targets():
+def _extract_targets(exclude=()):
     settings = get_query_settings()
     targets = []
     for source in QUERY_SOURCES:
+        if source in exclude:
+            continue
         checkpoint_name = settings[source].checkpoint
         for query_id in settings[source].queries:
             targets.append(

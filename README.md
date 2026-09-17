@@ -6,7 +6,14 @@ A data pipeline, data model and warehouse for the [Heritage Monitor](https://her
 
 WIP Singularity/ Docker...
 
-Go to [Orchestration Documentation](orchestration/README.md) to run the pipeline with DAGs and snakemake.
+```bash
+./orchestration/run_all_sources.sh extract       # extraction only
+./orchestration/run_all_sources.sh load --report # load, then per-source reports
+
+# Optional add -p/--parallel <N>
+```
+
+Go to [Orchestration Documentation](orchestration/README.md) for more snakemake commands.
 
 ## Installation
 
@@ -138,9 +145,11 @@ src/
 │   │   └── serve/       # → denormalized OpenSearch indices
 │   └── core_v3/         # frozen reference docs only, not executed
 ├── common/           # pydantic-settings config, db clients, file handling, requests, sanitizers
-│   └── api_runner/   # run_extractor.py/run_loader.py (IExtractor/ILoader defined in-file) + checkpoint_manager — only for sources/apis/
+│   ├── api_runner/   # run_extractor.py/run_loader.py (IExtractor/ILoader defined in-file) + checkpoint_manager — only for sources/apis/
+│   └── report/       # per-duckdb markdown data-profile reports, mirrors sources/pipelines under reports/
 └── enrichment/       # reusable ML capabilities (llm, ocr, geolocation, science_classification, topic_modelling, crossref)
 data/                 # pile/, checkpoints/ (cordis only), logs/, models/
+reports/              # generated markdown data-profile reports (gitignored) — see src/common/report/
 tests/
 ```
 

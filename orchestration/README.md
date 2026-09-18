@@ -38,41 +38,24 @@ On the HPC:
 uv run snakemake --workflow-profile orchestration/profiles/slurm all
 ```
 
-`./run_all_sources.sh` wraps the local-dev-safe source set (see `sources_local`
-below), split into an extraction step and a load step:
-
-```bash
-./orchestration/run_all_sources.sh extract           # extraction only, no load
-./orchestration/run_all_sources.sh load              # extract + load (also the default)
-./orchestration/run_all_sources.sh load --report     # extract + load, then per-source reports
-./orchestration/run_all_sources.sh --parallel 8      # override Snakemake's --cores (default 4)
-```
-
-`--report` (only valid with `load`) (re)generates each source's markdown
-data-profile report afterwards (see `src/common/report/`). It's this script's
-own flag, not Snakemake's built-in `--report <file>` (which renders an HTML
-run summary, a different thing). `--parallel N` is just this script's name
-for Snakemake's own `--cores N` — Snakemake already runs independent jobs
-(e.g. the arxiv/cordis extractions) concurrently once enough cores are
-available; this flag exposes that budget instead of hardcoding it.
-
-Equivalent bare Snakemake targets, if you don't want the wrapper:
-```bash
-uv run snakemake -s orchestration/Snakefile --cores 4 extract_sources_local  # extract only
-uv run snakemake -s orchestration/Snakefile --cores 4 sources_local          # extract + load
-```
-
 `all` covers incremental extraction/loading plus the versioned bulk dumps
-(ror_dump, openaire_dump). It does **not** include `openalex_dump` (corev5
-scope), `rules/pipeline/core_v3/enrichment.smk`, or `meta_heritage.smk` (all
-postgres-backed, run by name only) — see each rule file's docstring.
+(ror_dump, openaire_dump, minorities, oa_topics). It does **not** include
+`openalex_dump` (corev5 scope), `rules/pipeline/core_v3/enrichment.smk`, or
+`meta_heritage.smk` (all postgres-backed, run by name only) — see each rule
+file's docstring.
 
 `sources_local` / `extract_sources_local` are a narrower, local-dev-safe
 subset of `all`: every incremental api source except `LOCAL_EXCLUDE_SOURCES`
-(currently just `coreac`), plus `ror_dump` — no `coreac`, no `openaire_dump`.
+(currently just `coreac`), plus `ror_dump` and `minorities` — no `coreac`, no
+`openaire_dump`, no `oa_topics` (its raw file is manually placed with no
+producing rule, so it'd hard-fail on a fresh clone that hasn't placed it yet).
 The openaire dump is 100s of GB and HPC-only (see "Running Individually"
-below); coreac just isn't part of the default local run. Run either by name
-when you actually want it.
+below); coreac just isn't part of the default local run.
+
+```bash
+uv run snakemake -s orchestration/Snakefile --cores 4 extract_sources_local  # extract only
+uv run snakemake -s orchestration/Snakefile --cores 4 sources_local          # extract + load + reports
+```
 
 `core_v3_sources` / `extract_core_v3_sources` are a separate, HPC-only source
 set used to verify loader idempotency ahead of the core_v3 rebuild: cordis
@@ -80,25 +63,25 @@ restricted to its `full_projects_no_pdfs` query ("all cordis docs", no pdf
 subset) plus `ror_dump` and `openaire_dump` — no `arxiv`, no `coreac`. Sources
 only, not the core_v3 pipeline itself (see `rules/pipeline/core_v3/enrichment.smk`
 for that, under "Running Individually" below). Unlike `sources_local` this
-includes openaire, so run it with `--workflow-profile orchestration/profiles/slurm`,
-not through `run_all_sources.sh`. `report_core_v3_sources` chains the
-per-source reports on afterward, same idea as `run_all_sources.sh load
---report` but wired into the DAG itself instead of a separate command.
+includes openaire, so run it with `--workflow-profile orchestration/profiles/slurm`.
+`report_core_v3_sources` chains an unconditional full `generate_reports.py`
+regen on top — same tool the per-source `report_dump` rule uses, just
+ungated by staleness, for when you want everything refreshed regardless.
 
-`./run_core_v3_sources.sh` wraps all three (extract / load / load+report,
-default), and sets `ENV=prod` itself — `core_v3_sources` only makes sense
-against the real `/work/lu72hip` data, so this is the one place that forces
-prod rather than leaving it to `get_settings()`'s "dev" default (see the
-script's own header comment for why that can't just live in the Snakefile).
-It also always passes `--forcerun load_source load_ror_dump
-load_openaire_dump` on the load/report steps — without it Snakemake would see
-those outputs are already up to date and skip them, defeating the point of
-an idempotency check:
+`core_v3_sources` only makes sense against the real `/work/lu72hip` data, so
+run it with `ENV=prod` explicitly rather than relying on `get_settings()`'s
+"dev" default:
 
 ```bash
-./orchestration/run_core_v3_sources.sh                  # extract + load + report (default)
-./orchestration/run_core_v3_sources.sh extract           # extraction only
-./orchestration/run_core_v3_sources.sh load               # extract + load, no report
+ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm core_v3_sources
+```
+
+To verify idempotency (force a real rerun against already-extracted/downloaded
+data instead of Snakemake skipping already-up-to-date outputs):
+
+```bash
+ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm \
+    core_v3_sources --forcerun load_source load_ror_dump load_openaire_dump
 ```
 
 ### Running Individually
@@ -131,6 +114,29 @@ uv run snakemake --workflow-profile orchestration/profiles/slurm load_openaire_d
 # publication/relation) instead of the full dump
 # --limit isn't a target the DAG exposes.
 uv run python -m sources.dumps.openaire.loader --limit 1000
+
+# minorities: live Wikidata SPARQL discovery, then load into duckdb
+uv run snakemake -s orchestration/Snakefile --cores 4 discover_minorities_candidates
+uv run snakemake -s orchestration/Snakefile --cores 4 load_minorities
+
+# oa_topics: no download step, its CSV is placed manually — just load
+uv run snakemake -s orchestration/Snakefile --cores 4 load_oa_topics
+```
+
+**reports:** each dump's markdown data-profile report is its own DAG target
+(`rules/dumps.smk`'s `report_dump`), regenerated only when its duckdb actually
+changed:
+
+```bash
+uv run snakemake -s orchestration/Snakefile --cores 4 "reports/sources/dumps/ror_dump_2026_08_03.md"
+```
+
+For a full unconditional regen of every configured duckdb's report regardless
+of staleness, use the underlying script directly (see also
+`report_core_v3_sources` above):
+
+```bash
+uv run python -m common.report.generate_reports
 ```
 
 ## Sentinels

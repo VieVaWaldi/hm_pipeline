@@ -5,20 +5,17 @@ A data pipeline, data model and warehouse for the [Heritage Monitor](https://her
 ## Orchestration
 
 ```bash
-./orchestration/run_all_sources.sh extract       # extraction only
-./orchestration/run_all_sources.sh load --report # load, then per-source reports
-# Optional add -p/--parallel <N>
+uv run snakemake -s orchestration/Snakefile --cores 4 extract_sources_local  # extraction only
+uv run snakemake -s orchestration/Snakefile --cores 4 sources_local          # load, then per-source reports
 ```
 
 ```bash
-# TO just get reports for all duckdb files
+# to just get reports for all duckdb files
 uv run python -m common.report.generate_reports
 ```
 
 ```bash
-./orchestration/run_core_v3_sources.sh          # extract + load + report (default)
-./orchestration/run_core_v3_sources.sh extract   # extraction only
-./orchestration/run_core_v3_sources.sh load      # extract + load, no report
+ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm core_v3_sources
 ```
 
 Go to [Orchestration Documentation](orchestration/README.md) for more snakemake commands.
@@ -145,7 +142,7 @@ config/
 src/
 ├── sources/          # bronze: extract+load, per source, canon-independent, split by access pattern
 │   ├── apis/         # incremental, checkpointed, query-driven (arxiv, cordis, coreac)
-│   ├── dumps/        # periodic bulk snapshots, no checkpointing (openaire, ror, openalex)
+│   ├── dumps/        # periodic bulk snapshots, no checkpointing (openaire, ror, openalex, minorities, oa_topics)
 │   └── external/     # not core_v4 scope, kept for something else (meta_heritage)
 ├── pipelines/
 │   ├── core_v4/

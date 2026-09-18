@@ -34,7 +34,6 @@ workdir: str(REPO_ROOT)
 
 from common.config.api_runner import get_query_settings
 from common.config.dumps import get_dumps_paths
-from common.config.external import get_external_paths
 
 QUERY_SOURCES = ["arxiv", "cordis", "coreac"]  # meta_heritage has no queries
 
@@ -44,7 +43,6 @@ include: "rules/api_runner/load.smk"
 include: "rules/dumps.smk"
 include: "rules/pipeline/core_v3/enrichment.smk"
 include: "rules/external/meta_heritage.smk"
-include: "rules/external/minorities.smk"
 
 
 rule all:
@@ -52,6 +50,7 @@ rule all:
         rules.load_incremental_sources.input,
         rules.ingest_dumps.input,
         rules.load_minorities.output,
+        rules.load_oa_topics.output,
 
 
 # Sources left out of `sources_local` (see below): coreac isn't ready for an

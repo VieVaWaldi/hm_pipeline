@@ -15,13 +15,13 @@ from pathlib import Path
 from common.database.duck.create_connection import create_duck_connection
 from common.database.duck.utils import get_size_log
 from common.file_handling.file_utils import ensure_path_exists
-from common.config.external import get_external_paths
+from common.config.dumps import get_dumps_paths
 from common.log.logger import setup_logging
 from common.log.timer import log_run_time
 
 setup_logging("loader", "oa_topics")
 
-config = get_external_paths()["oa_topics"]
+config = get_dumps_paths()["oa_topics"]
 OA_TOPICS_SOURCE = Path(config["path_raw"])
 OA_TOPICS_DB = Path(config["path_duck"])
 

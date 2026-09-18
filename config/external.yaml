@@ -1,6 +1,0 @@
-minorities:
-  path_raw: data/pile/minorities/minorities.csv
-  path_duck: data/duckdb/sources/minorities_raw.duckdb
-oa_topics:
-  path_raw: data/pile/oa_topics/openalex_topic_mapping.csv
-  path_duck: data/duckdb/sources/oa_topics_raw.duckdb

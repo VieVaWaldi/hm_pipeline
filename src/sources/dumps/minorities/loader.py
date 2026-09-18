@@ -67,13 +67,13 @@ from SPARQLWrapper import SPARQLWrapper, JSON
 from common.database.duck.create_connection import create_duck_connection
 from common.database.duck.utils import get_size_log
 from common.file_handling.file_utils import ensure_path_exists
-from common.config.external import get_external_paths
+from common.config.dumps import get_dumps_paths
 from common.log.logger import setup_logging
 from common.log.timer import log_run_time
 
 setup_logging("loader", "minorities")
 
-config = get_external_paths()["minorities"]
+config = get_dumps_paths()["minorities"]
 MINORITIES_SOURCE = Path(config["path_raw"])
 MINORITIES_DB = Path(config["path_duck"])
 TITULAR_OVERRIDES_CSV = Path(__file__).resolve().parent / "titular_majority_overrides.csv"

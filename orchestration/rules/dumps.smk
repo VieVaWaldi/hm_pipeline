@@ -43,6 +43,39 @@ rule load_ror_dump:
         "python -m sources.dumps.ror.loader"
 
 
+MINORITIES_DIR = "src/sources/dumps/minorities"
+
+
+rule discover_minorities_candidates:
+    # The one genuinely expensive, rate-limited step: a live Wikidata SPARQL
+    # discovery query. Its own rule since it writes its own real, inspectable
+    # artifact — see src/sources/dumps/minorities/README.md.
+    output:
+        DUMP_PATHS["minorities"]["path_raw"],
+    shell:
+        f"python {MINORITIES_DIR}/extract.py"
+
+
+rule load_minorities:
+    input:
+        rules.discover_minorities_candidates.output,
+    output:
+        DUMP_PATHS["minorities"]["path_duck"],
+    shell:
+        f"python {MINORITIES_DIR}/loader.py"
+
+
+rule load_oa_topics:
+    # No download step: openalex_topic_mapping.csv is placed manually, not
+    # fetched by this pipeline — see src/sources/dumps/oa_topics/loader.py.
+    input:
+        DUMP_PATHS["oa_topics"]["path_raw"],
+    output:
+        DUMP_PATHS["oa_topics"]["path_duck"],
+    shell:
+        "python -m sources.dumps.oa_topics.loader"
+
+
 rule download_openaire_dump:
     # Output is a marker file inside path_raw, not path_raw itself. Without
     # it Snakemake's directory() deletes all data we already downloaded.

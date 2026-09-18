@@ -55,14 +55,14 @@ from datetime import datetime
 from pathlib import Path
 
 from common.database.duck.create_connection import create_duck_connection
-from common.config.external import get_external_paths
+from common.config.dumps import get_dumps_paths
 from common.log.logger import setup_logging
 from common.log.timer import log_run_time
 from common.search.index_duckdb_table import index_duckdb_table_opensearch
 
 setup_logging("index_opensearch", "minorities")
 
-config = get_external_paths()["minorities"]
+config = get_dumps_paths()["minorities"]
 MINORITIES_DB = Path(config["path_duck"])
 INDEX_NAME = "minorities"
 TABLE_NAME = "minorities_raw"

@@ -9,5 +9,6 @@ DUMPS_FILE = "dumps.yaml"
 @lru_cache
 def get_dumps_paths() -> Dict[str, SourcePaths]:
     """Loads config/dumps.yaml: per-source disk locations for bulk dumps and
-    their duckdb files (openaire_dump, openalex_dump, ror_dump)."""
+    their duckdb files (openaire_dump, openalex_dump, ror_dump, minorities,
+    oa_topics)."""
     return load_source_paths_file(DUMPS_FILE)

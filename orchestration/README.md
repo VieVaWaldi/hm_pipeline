@@ -11,7 +11,7 @@ orchestration/
 │   ├── api_runner/                 # ↔ src/sources/apis/ (arxiv, cordis, coreac)
 │   │   ├── extract.smk             # incremental extraction
 │   │   └── load.smk                # incremental loading into duckdb
-│   ├── dumps.smk                   # ↔ src/sources/dumps/ (ror, openaire, openalex)
+│   ├── dumps.smk                   # ↔ src/sources/dumps/ (ror, openaire, openalex, minorities, oa_topics)
 │   ├── external/                   # ↔ src/sources/external/
 │   │   └── meta_heritage.smk       # postgres-backed, not core_v4 scope, own scripts
 │   └── pipeline/                   # ↔ pipeline-level code, not a source at all

@@ -15,7 +15,7 @@ than loaded straight into Postgres.
    tribes / indigenous peoples tied to an explicit European country
    allowlist, plus manual seeds for the three pilot groups (Ladin, Sámi,
    Jewish). Writes `data/pile/minorities/minorities.csv` (path from
-   `config/external.yaml` -> `minorities.path_raw`). Kept as its own step: it's
+   `config/dumps.yaml` -> `minorities.path_raw`). Kept as its own step: it's
    the one genuinely expensive, rate-limited part of this pipeline (a live
    external SPARQL discovery query), and it already writes its own real,
    inspectable artifact — same treatment as any other `sources/dumps` source.
@@ -70,15 +70,15 @@ than loaded straight into Postgres.
 Run individually:
 
 ```bash
-uv run python src/sources/external/minorities/extract.py
-uv run python src/sources/external/minorities/loader.py
+uv run python src/sources/dumps/minorities/extract.py
+uv run python src/sources/dumps/minorities/loader.py
 ```
 
-Or via Snakemake — see `orchestration/rules/external/minorities.smk`. Unlike
+Or via Snakemake — see `orchestration/rules/dumps.smk`. Unlike
 `meta_heritage`, this source is wired into `rule all` / `sources_local`, so
 `./orchestration/run_all_sources.sh` covers it too, and `generate_reports.py`
-picks up `reports/sources/external/minorities.md` automatically since it's a
-`config/external.yaml` entry.
+picks up `reports/sources/dumps/minorities.md` automatically since it's a
+`config/dumps.yaml` entry.
 
 ## Serving
 

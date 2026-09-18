@@ -25,7 +25,7 @@ from urllib.error import HTTPError
 import pandas as pd
 from SPARQLWrapper import SPARQLWrapper, JSON
 
-from common.config.external import get_external_paths
+from common.config.dumps import get_dumps_paths
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -378,7 +378,7 @@ def discover() -> pd.DataFrame:
 
 
 def main():
-    out_path = Path(get_external_paths()["minorities"]["path_raw"])
+    out_path = Path(get_dumps_paths()["minorities"]["path_raw"])
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     df = discover()

@@ -3,11 +3,12 @@
 Four files, validated by pydantic models in `common/config/` — no more global untyped
 dict getter. `ENV` (dev/prod, from `.env`) selects which block of `config.yaml` is used.
 
-- [`config.yaml`](config.yaml) — paths, database connection and Meilisearch host/port, per
+- [`config.yaml`](config.yaml) — paths, database connection and OpenSearch host/port, per
   environment (dev/prod). Loaded via `common.config.settings.get_settings()`. Also carries
   `hpc_root` (prod only, e.g. `/work/lu72hip`) — the one place dev/prod filesystem layout
-  differs; see below. The Meilisearch master key is not here — it's `MEILI_MASTER_KEY` in
-  `.env`, same as other API keys (see [infra/meilisearch/README.md](../infra/meilisearch/README.md)).
+  differs; see below. The OpenSearch admin password is not here — it's
+  `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `.env`, same as other API keys (see
+  [infra/docker-compose.yml](../infra/docker-compose.yml)).
 - [`api_runner.yaml`](api_runner.yaml) — extraction query definitions for the incrementally-extracted
   sources (arxiv, cordis, coreac, meta_heritage). Loaded via
   `common.config.api_runner.get_query_settings()`. Each source contains:

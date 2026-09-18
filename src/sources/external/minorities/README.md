@@ -82,8 +82,7 @@ picks up `reports/sources/external/minorities.md` automatically since it's a
 
 ## Serving
 
-`index_meilisearch.py` — experimental, not wired into Snakemake: loads
-`minorities_raw` into a Meilisearch `minorities` index (`search_keywords`
-ranked right behind `group_name_en` in `searchableAttributes`), for testing
-autocomplete/facet behaviour ahead of the real core_v4 serve pipeline (see
-`infra/meilisearch/README.md`).
+`index_opensearch.py` — experimental, not wired into Snakemake: loads
+`minorities_raw` into an OpenSearch `minorities` index (`search_keywords`
+alongside `group_name_en` as full-text searchable fields), for testing
+search/facet behaviour ahead of the real core_v4 serve pipeline.

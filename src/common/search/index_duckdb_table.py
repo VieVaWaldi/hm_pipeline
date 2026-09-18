@@ -1,64 +1,12 @@
 import duckdb
-import meilisearch
 import numpy as np
 import pandas as pd
 from opensearchpy import OpenSearch
 from opensearchpy.helpers import bulk as opensearch_bulk
 
-from common.search.client import get_meilisearch_client, get_opensearch_client
+from common.search.client import get_opensearch_client
 
 DEFAULT_BATCH_SIZE = 1000
-
-
-def index_duckdb_table(
-    con: duckdb.DuckDBPyConnection,
-    table: str,
-    index_name: str,
-    primary_key: str,
-    batch_size: int = DEFAULT_BATCH_SIZE,
-    replace_all: bool = False,
-    client: meilisearch.Client | None = None,
-) -> int:
-    """Loads every row of `table` into a Meilisearch index, paginated.
-
-    Meilisearch upserts by primary_key and creates the index on first write
-    if it doesn't exist yet, which is idempotent for rows that still exist —
-    but a row that *disappeared* from `table` since the last run (e.g. a
-    staging table whose filtering logic changed, or a row that got folded
-    into another one) stays behind in the index forever, since
-    add_documents() only ever adds/updates. Pass replace_all=True for any
-    table that's a full point-in-time snapshot each run (i.e. built via
-    CREATE OR REPLACE TABLE, which is every staging table in this repo) —
-    it clears the index first so a shrinking source table actually shrinks
-    the index to match, matching the rest of the pipeline's CREATE OR
-    REPLACE idempotence model instead of a pure merge.
-
-    client defaults to this repo's own dev/test Meilisearch instance
-    (get_meilisearch_client(), config/config.yaml's search.host/port). Pass
-    an explicit client to index into a different instance instead — e.g.
-    pushing a finished index over to a downstream webapp's own Meilisearch,
-    which isn't this repo's config to own.
-
-    Returns the number of documents indexed.
-    """
-    client = client or get_meilisearch_client()
-    index = client.index(index_name)
-
-    if replace_all:
-        task = index.delete_all_documents()
-        client.wait_for_task(task.task_uid)
-
-    total = 0
-    offset = 0
-    while True:
-        df = con.execute(f'SELECT * FROM "{table}" LIMIT {batch_size} OFFSET {offset}').fetchdf()
-        if df.empty:
-            break
-        task = index.add_documents(_dataframe_to_documents(df), primary_key=primary_key)
-        client.wait_for_task(task.task_uid)  # add_documents is async — block so callers can rely on "returned means indexed"
-        total += len(df)
-        offset += batch_size
-    return total
 
 
 def index_duckdb_table_opensearch(
@@ -73,16 +21,16 @@ def index_duckdb_table_opensearch(
 ) -> int:
     """Loads every row of `table` into an OpenSearch index, paginated.
 
-    Unlike Meilisearch, OpenSearch needs an explicit mapping (field types)
-    declared before the first document lands, and that mapping is largely
-    immutable once set -- so `mapping` is a required argument here, not an
-    index-settings call made separately, and replace_all=True **deletes and
-    recreates the index** (mapping included) rather than just clearing
-    documents, since a table's column set changing between runs would
-    otherwise leave a stale mapping behind. This is the simplest fit for
-    this repo's CREATE OR REPLACE TABLE full-snapshot idiom -- a bigger
-    dataset with a zero-downtime requirement would want a timestamped index
-    + alias swap instead, not worth it for an experimental/dev-only index.
+    OpenSearch needs an explicit mapping (field types) declared before the
+    first document lands, and that mapping is largely immutable once set --
+    so `mapping` is a required argument here, not an index-settings call
+    made separately, and replace_all=True **deletes and recreates the
+    index** (mapping included) rather than just clearing documents, since a
+    table's column set changing between runs would otherwise leave a stale
+    mapping behind. This is the simplest fit for this repo's CREATE OR
+    REPLACE TABLE full-snapshot idiom -- a bigger dataset with a
+    zero-downtime requirement would want a timestamped index + alias swap
+    instead, not worth it for an experimental/dev-only index.
 
     client defaults to this repo's own dev OpenSearch instance
     (get_opensearch_client(), config/config.yaml's opensearch.host/port).

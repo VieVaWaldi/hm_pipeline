@@ -1,14 +1,4 @@
 services:
-  meilisearch:
-    image: getmeili/meilisearch:v1.53.2
-    ports:
-      - "7700:7700"
-    environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
-      MEILI_ENV: development
-    volumes:
-      - meili_data:/meili_data
-
   # Same image/version as heritagemonitor's infra/docker-compose.yml, kept in
   # sync deliberately. Ports shifted off 9200/9600 since heritagemonitor's own
   # hm-opensearch container already holds those on a shared dev machine.
@@ -39,5 +29,4 @@ services:
       retries: 10
 
 volumes:
-  meili_data:
   os_data:

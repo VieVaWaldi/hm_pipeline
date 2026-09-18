@@ -10,7 +10,6 @@ dependencies = [
     "graphviz",
     "ipykernel",
     "jupyter",
-    "meilisearch",
     "notebook",
     "openai",
     "opensearch-py",

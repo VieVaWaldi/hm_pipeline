@@ -29,7 +29,6 @@ class Settings(BaseModel):
     orchestration_path: Path
     hpc_root: str = ""
     db: DBSettings
-    search: SearchSettings
     opensearch: SearchSettings
 
 

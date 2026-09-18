@@ -1,6 +1,6 @@
 openaire_dump:
-  version: "2025_12_01"
-  path_raw: data/pile/openaire_2025_12_01_dump
+  version: "2026_06_05"
+  path_raw: data/pile/openaire_2026_06_05_dump
   path_duck: data/duckdb/sources/openaire_raw.duckdb
   path_duck_staging_2: data/duckdb/sources/openaire_staging_2.duckdb
 openalex_dump:

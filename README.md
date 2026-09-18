@@ -4,15 +4,21 @@ A data pipeline, data model and warehouse for the [Heritage Monitor](https://her
 
 ## Orchestration
 
-WIP Singularity/ Docker...
-
 ```bash
 ./orchestration/run_all_sources.sh extract       # extraction only
 ./orchestration/run_all_sources.sh load --report # load, then per-source reports
 # Optional add -p/--parallel <N>
+```
 
+```bash
 # TO just get reports for all duckdb files
 uv run python -m common.report.generate_reports
+```
+
+```bash
+./orchestration/run_core_v3_sources.sh          # extract + load + report (default)
+./orchestration/run_core_v3_sources.sh extract   # extraction only
+./orchestration/run_core_v3_sources.sh load      # extract + load, no report
 ```
 
 Go to [Orchestration Documentation](orchestration/README.md) for more snakemake commands.

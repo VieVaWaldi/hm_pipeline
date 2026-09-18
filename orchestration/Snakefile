@@ -106,3 +106,18 @@ rule core_v3_sources:
         _load_targets(exclude=CORE_V3_SOURCES_EXCLUDE, only_queries=CORE_V3_SOURCES_QUERY_OVERRIDES),
         rules.load_ror_dump.output,
         rules.load_openaire_dump.output,
+
+
+rule report_core_v3_sources:
+    """core_v3_sources, then the per-source data-profile reports (see
+    src/common/report/). generate_reports scans every configured duckdb file,
+    not just this target's -- this rule only sequences it to run after the
+    load finishes. No real output of its own, so it's a touch() sentinel (see
+    orchestration/README.md "Sentinels"); re-run this rule with --forcerun
+    whenever you want fresh reports regardless of the sentinel's age."""
+    input:
+        rules.core_v3_sources.input,
+    output:
+        touch(".snakemake/sentinels/core_v3_sources/report_done"),
+    shell:
+        "python -m common.report.generate_reports"

@@ -81,7 +81,25 @@ subset) plus `ror_dump` and `openaire_dump` — no `arxiv`, no `coreac`. Sources
 only, not the core_v3 pipeline itself (see `rules/pipeline/core_v3/enrichment.smk`
 for that, under "Running Individually" below). Unlike `sources_local` this
 includes openaire, so run it with `--workflow-profile orchestration/profiles/slurm`,
-not through `run_all_sources.sh`.
+not through `run_all_sources.sh`. `report_core_v3_sources` chains the
+per-source reports on afterward, same idea as `run_all_sources.sh load
+--report` but wired into the DAG itself instead of a separate command.
+
+`./run_core_v3_sources.sh` wraps all three (extract / load / load+report,
+default), and sets `ENV=prod` itself — `core_v3_sources` only makes sense
+against the real `/work/lu72hip` data, so this is the one place that forces
+prod rather than leaving it to `get_settings()`'s "dev" default (see the
+script's own header comment for why that can't just live in the Snakefile).
+It also always passes `--forcerun load_source load_ror_dump
+load_openaire_dump` on the load/report steps — without it Snakemake would see
+those outputs are already up to date and skip them, defeating the point of
+an idempotency check:
+
+```bash
+./orchestration/run_core_v3_sources.sh                  # extract + load + report (default)
+./orchestration/run_core_v3_sources.sh extract           # extraction only
+./orchestration/run_core_v3_sources.sh load               # extract + load, no report
+```
 
 ### Running Individually
 

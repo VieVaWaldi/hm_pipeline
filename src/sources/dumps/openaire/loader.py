@@ -42,6 +42,33 @@ def _json_source(entity_dir: Path, limit: int) -> str:
     return f"[{quoted}]"
 
 
+# Dumps from 2026-06 onward split the old unified relation/ directory into one
+# directory per relType.name instead. Of those, these three are the ones the
+# filter below keeps (relType.type affiliation/outcome/participation) -- see
+# src/sources/dumps/openaire/documentation/ for how this was derived. Each
+# edge is stored once here (e.g. product_hasAuthorInstitution only, not also
+# its old inverse organization/isAuthorInstitutionOf); the filter already
+# checks both sourceType and targetType for 'product' so no edges are lost,
+# just the old duplicate mirrored copies.
+RELATION_DIRS = ["product_hasAuthorInstitution", "project_produces", "project_hasParticipant"]
+
+
+def _relation_json_source(source: Path, limit: int) -> str:
+    """Same contract as _json_source, but unions RELATION_DIRS instead of a
+    single directory."""
+    if limit <= 0:
+        quoted = ", ".join(f"'{source / d}/*.json.gz'" for d in RELATION_DIRS)
+        return f"[{quoted}]"
+
+    files = []
+    for d in RELATION_DIRS:
+        files.extend(sorted((source / d).glob("*.json.gz"))[:limit])
+    if not files:
+        raise FileNotFoundError(f"No *.json.gz files found under {[str(source / d) for d in RELATION_DIRS]}")
+    quoted = ", ".join(f"'{f}'" for f in files)
+    return f"[{quoted}]"
+
+
 def run_loader(limit: int = 0):
     config = get_dumps_paths()["openaire_dump"]
     source = Path(config["path_raw"])
@@ -129,7 +156,7 @@ def run_loader(limit: int = 0):
     con.execute(f"""
         CREATE OR REPLACE TABLE relation AS
         SELECT r.*
-        FROM read_json({_json_source(source / "relation", limit)},
+        FROM read_json({_relation_json_source(source, limit)},
             format='newline_delimited', compression='gzip', union_by_name=true) r
         WHERE r.relType.type IN ('affiliation', 'outcome', 'participation')
           AND (

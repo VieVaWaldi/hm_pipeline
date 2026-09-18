@@ -69,7 +69,12 @@ def _relation_json_source(source: Path, limit: int) -> str:
     return f"[{quoted}]"
 
 
-def run_loader(limit: int = 0):
+# Headroom kept below the job's total mem_mb (SLURM resources: block) for
+# the OS/process overhead outside DuckDB's own buffer manager.
+DUCKDB_MEM_HEADROOM_MB = 40_000
+
+
+def run_loader(limit: int = 0, mem_mb: int = 200_000, threads: int = 32):
     config = get_dumps_paths()["openaire_dump"]
     source = Path(config["path_raw"])
     db = Path(config["path_duck"])
@@ -84,8 +89,8 @@ def run_loader(limit: int = 0):
     con = create_duck_connection(str(db))
 
     # Override defaults from create_duck_connection — this job needs more
-    con.execute("SET memory_limit='160GB'")
-    con.execute("SET threads=32")
+    con.execute(f"SET memory_limit='{mem_mb - DUCKDB_MEM_HEADROOM_MB}MB'")
+    con.execute(f"SET threads={threads}")
 
     total_start = datetime.now()
 
@@ -225,7 +230,16 @@ if __name__ == "__main__":
         nargs="?",
         const=1000,
     )
+    parser.add_argument(
+        "--mem-mb",
+        type=int,
+        default=200_000,
+        help="Total memory available to this job (matches the SLURM resources: "
+        "mem_mb in orchestration/rules/dumps.smk). DuckDB's own memory_limit is "
+        "set to this minus DUCKDB_MEM_HEADROOM_MB.",
+    )
+    parser.add_argument("--threads", type=int, default=32)
     args = parser.parse_args()
 
     setup_logging("loader", "openaire_dump")
-    run_loader(limit=args.limit)
+    run_loader(limit=args.limit, mem_mb=args.mem_mb, threads=args.threads)

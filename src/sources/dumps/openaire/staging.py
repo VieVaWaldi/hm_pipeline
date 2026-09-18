@@ -10,6 +10,7 @@ Applies per table:
   - relation: hash source and target in place
 """
 
+import argparse
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +30,22 @@ from common.log.timer import log_run_time
 
 setup_logging("staging", "openaire")
 
+# Headroom kept below the job's total mem_mb (SLURM resources: block) for
+# the OS/process overhead outside DuckDB's own buffer manager.
+DUCKDB_MEM_HEADROOM_MB = 40_000
+
+_parser = argparse.ArgumentParser(description="OpenAIRE Staging")
+_parser.add_argument(
+    "--mem-mb",
+    type=int,
+    default=200_000,
+    help="Total memory available to this job (matches the SLURM resources: "
+    "mem_mb in orchestration/rules/dumps.smk). DuckDB's own memory_limit is "
+    "set to this minus DUCKDB_MEM_HEADROOM_MB.",
+)
+_parser.add_argument("--threads", type=int, default=32)
+_args = _parser.parse_args()
+
 config = get_dumps_paths()["openaire_dump"]
 RAW_DB = Path(config["path_duck"])
 STAGING_DB = Path(
@@ -42,8 +59,8 @@ logging.info(f"Source: {RAW_DB}")
 logging.info(f"Target: {STAGING_DB}")
 
 con = create_duck_connection(str(STAGING_DB))
-con.execute("SET memory_limit='160GB'")
-con.execute("SET threads=32")
+con.execute(f"SET memory_limit='{_args.mem_mb - DUCKDB_MEM_HEADROOM_MB}MB'")
+con.execute(f"SET threads={_args.threads}")
 
 con.execute(f"ATTACH '{RAW_DB}' AS raw (READ_ONLY)")
 
@@ -83,7 +100,7 @@ con.execute(
         )                                                                   AS alternativeNames,
         country.code                                                        AS countryCode,
         (list_filter(pids, p -> p.scheme = 'ROR'))[1].value                 AS rorId,
-        (list_filter(pids, p -> p.scheme = 'Wikidata'))[1].value            AS wikiId
+        (list_filter(pids, p -> p.scheme = 'Wikidata'))[1].value            AS wikiId,
         pids                                                                AS pids
     FROM raw.organization
 """

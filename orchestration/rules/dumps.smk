@@ -61,11 +61,15 @@ rule load_openaire_dump:
         rules.download_openaire_dump.output,
     output:
         DUMP_PATHS["openaire_dump"]["path_duck"],
+    resources:
+        mem_mb=200000,
+        runtime=4320,
+        cpus_per_task=32,
     shell:
         # Full load — no --limit. For a fast local test load, run
         # sources.dumps.openaire.loader --limit N directly (see
         # orchestration/README.md "Running Individually").
-        "python -m sources.dumps.openaire.loader"
+        "python -m sources.dumps.openaire.loader --mem-mb {resources.mem_mb} --threads {resources.cpus_per_task}"
 
 
 rule stage_openaire_dump:
@@ -73,8 +77,12 @@ rule stage_openaire_dump:
         rules.load_openaire_dump.output,
     output:
         DUMP_PATHS["openaire_dump"]["path_duck_staging_2"],
+    resources:
+        mem_mb=200000,
+        runtime=4320,
+        cpus_per_task=32,
     shell:
-        "python -m sources.dumps.openaire.staging"
+        "python -m sources.dumps.openaire.staging --mem-mb {resources.mem_mb} --threads {resources.cpus_per_task}"
 
 
 # openalex_dump is corev5 scope — download rule kept for parity, not wired into `rule all`.

@@ -11,9 +11,9 @@ printshellcmds: true
 
 default-resources:
   slurm_partition: fat
-  mem_mb: 8000
+  mem_mb: 64000
   runtime: 2880   # 2 days in minutes
-  cpus_per_task: 2
+  cpus_per_task: 6
 
 # Containers: once pipelines/core_v4 rules exist and declare `container: "docker://..."`,
 # add --software-deployment-method apptainer here. The flag is named "apptainer" but

@@ -1,16 +1,17 @@
 #!/bin/bash
 # Downloads (and extracts) the OpenAIRE dump from Zenodo.
 #
-# Usage: bash download.sh <target-dir>
-#   <target-dir> is the resolved path_raw from config/dumps.yaml (dev:
-#   project-relative; prod: under hpc_root) — Snakemake passes it as the
-#   rule's `output:`. Resourcing for the HPC (mem/cpus/runtime) comes from
+# Usage: bash download.sh <marker-file>
+#   <marker-file> is the resolved path_raw_marker from config/dumps.yaml,
+#   a sentinel inside path_raw — Snakemake passes it as the rule's `output:`.
+#   Resourcing for the HPC (mem/cpus/runtime) comes from
 #   download_openaire_dump's `resources:` in orchestration/rules/dumps.smk,
 #   read by the slurm executor — not from #SBATCH headers here.
 set -uo pipefail
 
 # --- Path Configuration ---
-DOWNLOAD_DIR="$1"
+MARKER="$1"
+DOWNLOAD_DIR="$(dirname "$MARKER")"
 LOG_DIR="${DOWNLOAD_DIR}/../../logs"
 VENV_PATH="${DOWNLOAD_DIR}/../oa_venv"
 URLS_FILE="${DOWNLOAD_DIR}/file_urls.txt"
@@ -19,6 +20,11 @@ STATUS_LOG="${LOG_DIR}/openaire_download_${SLURM_JOB_ID:-manual}_status.log"
 # OpenAIRE December 2025 record
 ZENODO_RECORD="20428976"
 PARALLELISM=32
+
+if [ -f "$MARKER" ]; then
+    echo "Marker exists, already downloaded: $MARKER"
+    exit 0
+fi
 
 # mkdir -p "$LOG_DIR"
 # mkdir -p "$DOWNLOAD_DIR"
@@ -159,3 +165,5 @@ find "$DOWNLOAD_DIR" -name "*.tar" -type f -print0 | xargs -0 -P 32 -I {} bash -
 '
 find "$DOWNLOAD_DIR" -type f -name "*.gz" | wc -l
 du -sh "$DOWNLOAD_DIR"
+
+touch "$MARKER"

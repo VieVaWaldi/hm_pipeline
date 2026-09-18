@@ -44,8 +44,10 @@ rule load_ror_dump:
 
 
 rule download_openaire_dump:
+    # Output is a marker file inside path_raw, not path_raw itself. Without
+    # it Snakemake's directory() deletes all data we already downloaded.
     output:
-        directory(DUMP_PATHS["openaire_dump"]["path_raw"]),
+        DUMP_PATHS["openaire_dump"]["path_raw_marker"],
     resources:
         mem_mb=64000,
         runtime=4320,

@@ -49,8 +49,8 @@ rule all:
     input:
         rules.load_incremental_sources.input,
         rules.ingest_dumps.input,
-        rules.load_minorities.output,
-        rules.load_oa_topics.output,
+        f"reports/sources/dumps/{REPORT_NAME_MINORITIES}.md",
+        f"reports/sources/dumps/{REPORT_NAME_OA_TOPICS}.md",
 
 
 # Sources left out of `sources_local` (see below): coreac isn't ready for an
@@ -78,8 +78,8 @@ rule sources_local:
     the openaire dump for full/HPC runs."""
     input:
         _load_targets(exclude=LOCAL_EXCLUDE_SOURCES),
-        rules.load_ror_dump.output,
-        rules.load_minorities.output,
+        f"reports/sources/dumps/{REPORT_NAME_ROR_DUMP}.md",
+        f"reports/sources/dumps/{REPORT_NAME_MINORITIES}.md",
 
 
 # core_v3_sources source set: cordis's "all cordis docs" query
@@ -106,8 +106,8 @@ rule core_v3_sources:
     openaire_dump. See extract_core_v3_sources."""
     input:
         _load_targets(exclude=CORE_V3_SOURCES_EXCLUDE, only_queries=CORE_V3_SOURCES_QUERY_OVERRIDES),
-        rules.load_ror_dump.output,
-        rules.load_openaire_dump.output,
+        f"reports/sources/dumps/{REPORT_NAME_ROR_DUMP}.md",
+        f"reports/sources/dumps/{REPORT_NAME_OPENAIRE_DUMP}.md",
 
 
 rule report_core_v3_sources:

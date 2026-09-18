@@ -126,7 +126,36 @@ rule download_openalex_dump:
         "bash src/sources/dumps/openalex/download.sh"
 
 
+# Report names, {name} in report_dump below -- also referenced from the
+# Snakefile's rule all / sources_local / core_v3_sources so the exact
+# reports/sources/dumps/<name>.md path only ever gets built in one place.
+REPORT_NAME_ROR_DUMP = f"ror_dump_{DUMP_PATHS['ror_dump']['version']}"
+REPORT_NAME_OPENAIRE_DUMP = f"openaire_dump_{DUMP_PATHS['openaire_dump']['version']}"
+REPORT_NAME_OPENAIRE_DUMP_STAGING = f"openaire_dump_staging_2_{DUMP_PATHS['openaire_dump']['version']}"
+REPORT_NAME_MINORITIES = "minorities"
+REPORT_NAME_OA_TOPICS = "oa_topics"
+
+DUMP_REPORT_INPUTS = {
+    REPORT_NAME_ROR_DUMP: rules.load_ror_dump.output,
+    REPORT_NAME_OPENAIRE_DUMP: rules.load_openaire_dump.output,
+    REPORT_NAME_OPENAIRE_DUMP_STAGING: rules.stage_openaire_dump.output,
+    REPORT_NAME_MINORITIES: rules.load_minorities.output,
+    REPORT_NAME_OA_TOPICS: rules.load_oa_topics.output,
+}
+
+
+# One rule, one job per distinct {name} requested -- not one job that builds
+# every report at once (same as load_source's per-source/query_id jobs).
+rule report_dump:
+    input:
+        lambda wc: DUMP_REPORT_INPUTS[wc.name],
+    output:
+        "reports/sources/dumps/{name}.md",
+    shell:
+        "python -m common.report.generate_reports --only {output}"
+
+
 rule ingest_dumps:
     input:
-        rules.load_ror_dump.output,
-        rules.stage_openaire_dump.output,
+        f"reports/sources/dumps/{REPORT_NAME_ROR_DUMP}.md",
+        f"reports/sources/dumps/{REPORT_NAME_OPENAIRE_DUMP_STAGING}.md",

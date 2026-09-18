@@ -54,8 +54,6 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 from common.database.duck.create_connection import create_duck_connection
 from common.config.external import get_external_paths
 from common.log.logger import setup_logging
@@ -63,7 +61,6 @@ from common.log.timer import log_run_time
 from common.search.index_duckdb_table import index_duckdb_table_opensearch
 
 setup_logging("index_opensearch", "minorities")
-load_dotenv()
 
 config = get_external_paths()["minorities"]
 MINORITIES_DB = Path(config["path_duck"])

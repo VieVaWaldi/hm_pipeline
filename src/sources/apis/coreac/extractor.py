@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from dateutil.relativedelta import relativedelta
-from dotenv import load_dotenv
 
 from common.errors.error_handling import log_and_exit
 from common.file_handling.file_parsing.json_parser import get_all_keys_value_recursively

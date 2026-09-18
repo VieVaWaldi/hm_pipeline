@@ -3,6 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from common.file_handling.path_utils import get_project_root_path
@@ -34,7 +35,13 @@ class Settings(BaseModel):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Loads config/config.yaml, validated, for the environment set via ENV (default: dev)."""
+    """Loads config/config.yaml, validated, for the environment set via ENV (default: dev).
+
+    Loads .env first so ENV and API keys are available however this is invoked
+    (Snakefile parse time, a rule's `python -m`, a notebook, a standalone
+    script) -- load_dotenv() never overrides a var already set in the real
+    environment, so an ENV exported by the SLURM submission still wins."""
+    load_dotenv(get_project_root_path() / ".env")
     env = os.getenv("ENV", "dev")
     config_path = get_project_root_path() / "config" / CONFIG_FILE
     raw = yaml.safe_load(config_path.read_text())

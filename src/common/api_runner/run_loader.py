@@ -6,7 +6,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Type
 
-from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 
 from common.api_runner.checkpoint_manager import CheckpointManager
@@ -139,7 +138,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    load_dotenv()
     setup_logging("loader", f"{args.source}-query_id-{args.query_id}")
 
     # Imported here, not at module level: these subclass ILoader defined above,

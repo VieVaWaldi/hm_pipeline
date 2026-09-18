@@ -5,13 +5,16 @@ Orchestration only: this file and rules/*.smk wire together the ordered steps.
 The actual logic lives in src/sources/, src/common/, and src/enrichment/ — this file
 never contains pipeline logic itself, only how to invoke it and in what order.
 
-Rule files mirror where the code they invoke lives: rules/api_runner/ ↔
-src/sources/apis/, rules/dumps.smk ↔ src/sources/dumps/, rules/external/ ↔
-src/sources/external/, rules/pipeline/ ↔ pipeline-level code that isn't a source
-at all (src/enrichment/, and eventually src/pipelines/core_v4/, src/pipelines/core_v3/
-once it's rebuilt runnable) — each pipeline version gets its own
-rules/pipeline/core_vN/ once that version has real rules, rather than
-stubbing them out in advance.
+Rule files mirror where the code they invoke lives:
+rules/api_runner/ ↔ src/sources/apis/
+rules/dumps.smk ↔ src/sources/dumps/
+rules/external/ ↔ src/sources/external/
+rules/pipeline/ ↔ pipeline-level
+code that isn't a source at all (src/enrichment/, and eventually
+src/pipelines/core_v4/, src/pipelines/core_v3/ once it's rebuilt runnable)
+
+Each pipeline version gets its own rules/pipeline/core_vN/ once that version has real rules,
+rather than stubbing them out in advance.
 
 Run locally:    snakemake --cores 4 <target>
 Run on the HPC: snakemake --workflow-profile orchestration/profiles/slurm <target>

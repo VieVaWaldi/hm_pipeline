@@ -7,8 +7,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Type
 
-from dotenv import load_dotenv
-
 from common.config.api_runner import get_query_settings
 from common.config.settings import get_settings
 from common.errors.error_handling import log_and_exit
@@ -132,7 +130,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    load_dotenv()
     setup_logging("extractor", f"{args.source}-query_id-{args.query_id}")
 
     # Imported here, not at module level: these subclass IExtractor defined above,

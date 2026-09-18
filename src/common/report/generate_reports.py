@@ -15,8 +15,6 @@ import logging
 from pathlib import Path
 from typing import Dict, Iterator, Optional, Tuple
 
-from dotenv import load_dotenv
-
 from common.config.api_runner import get_query_settings
 from common.config.dumps import get_dumps_paths
 from common.config.external import get_external_paths
@@ -105,6 +103,5 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    load_dotenv()
     setup_logging("report", "generate_reports")
     generate_all_reports(only=args.only)

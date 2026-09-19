@@ -1,0 +1,34 @@
+# Ambiguity rules for the minority keyword matcher (see matcher.py).
+#
+# Two kinds of keyword are "ambiguous" and only match as an exact, case-sensitive,
+# capitalised word ("Sami", never "same" or "SAME"):
+#   1. keywords of 4 characters or fewer (after normalisation), automatically;
+#   2. keywords listed under common_words (ordinary English words or phrases).
+#
+# blocklist keywords never match at all. Lower-case, accent-stripped; matching is
+# whole-word. Everything here is a judgement about precision, review it against the
+# per-keyword hit counts and the precision sample (pipelines/core_v4/enrichment/minorities.py --review).
+
+common_words:
+  - same        # Swedish/Norwegian for Sami; a normal English word
+
+# Short but distinctive keywords, exempt from the capitalised-only rule (any case matches).
+always_match:
+  - joik        # Sami singing style
+  - yoik
+  - manx
+
+blocklist:
+  # Generic English phrases that Wikidata lists as aliases of some group.
+  - common people
+  - lower order people
+  - canal people
+  - water gypsies
+  - suits
+  - votes
+  - kinda
+  - heres
+  - barges
+  - watter
+  - yerli
+  - eli         # a first name; Wikidata alias of the Eli people

@@ -1,0 +1,31 @@
+# Theme definitions (DIGICHer DST). A row gets the first theme (in this order) whose rule matches
+# its best topic. A topic matches when its OpenAlex field_id or subfield_id is listed, or its topic
+# id is listed explicitly. Source of the lists: src/pipelines/core_v3/materialized/foci.sql.
+#
+# min_score: minimum TF-IDF cosine of the best topic for a row to get a theme. PROVISIONAL: chosen
+# without real data; pick it from `theme --sweep` on the representative sample and update it here.
+min_score: 0.1
+
+themes:
+  Economy:
+    fields: [20]                # Economics, Econometrics and Finance
+    subfields: []
+    topics:
+      - 12033                   # Agricultural Economics and Policy
+      - 14219                   # Local Economic Development and Planning
+      - 12312                   # Culture, Economy, and Development Studies
+      - 14352                   # Globalization and Economic Impact
+      - 14433                   # Post-Communist Economic and Political Transition
+  Tourism:
+    fields: []
+    subfields: [1409]           # Tourism, Leisure and Hospitality Management
+    topics:
+      - 10055                   # Diverse Aspects of Tourism Research
+      - 11793                   # Recreation, Leisure, Wilderness Management
+      - 11925                   # Culinary Culture and Tourism
+      - 12399                   # Wine Industry and Tourism
+      - 12456                   # Geotourism and Geoheritage Conservation
+      - 12584                   # Hospitality and Tourism Education
+      - 12402                   # Travel-related health issues
+      - 11474                   # Sport and Mega-Event Impacts
+      - 11410                   # Cultural Industries and Urban Development

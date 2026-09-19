@@ -20,6 +20,7 @@ dependencies = [
     "protobuf",
     "psutil",
     "psycopg2-binary",
+    "pyahocorasick>=2.3.1",
     "pyarrow>=25.0.1",
     "pydantic",
     "pydantic-settings",

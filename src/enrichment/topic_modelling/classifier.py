@@ -14,6 +14,7 @@ from typing import Iterable, List, Optional
 
 import numpy as np
 import spacy
+import scipy.sparse as sp
 from pandas import DataFrame
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -48,6 +49,26 @@ def normalise_text(text: str) -> str:
     return " ".join(tokens)
 
 
+def normalise_texts(texts: Iterable[str], batch_size: int = 64) -> List[str]:
+    """Same result as [normalise_text(t) for t in texts], but through nlp.pipe (batched
+    tokenisation/lemmatisation instead of one nlp() call per text)."""
+    texts = list(texts)
+    out = [""] * len(texts)
+    todo = [(i, t.lower()[:999_900]) for i, t in enumerate(texts) if t and t.strip()]
+    docs = _nlp.pipe((t for _, t in todo), batch_size=batch_size)
+    for (i, _), doc in zip(todo, docs):
+        out[i] = " ".join(
+            token.lemma_
+            for token in doc
+            if not token.is_stop
+            and not token.is_punct
+            and not token.is_space
+            and token.is_alpha
+            and len(token.text) > 2
+        )
+    return out
+
+
 class TfidfTopicClassifier(Enricher[str, TopicPrediction]):
     """Enricher[str, TopicPrediction]. Build a fresh model with `.build()`, or
     reuse one via `.save()`/`.load()`. `.enrich(texts)` returns one prediction
@@ -60,6 +81,32 @@ class TfidfTopicClassifier(Enricher[str, TopicPrediction]):
 
     def enrich(self, items: Iterable[str]) -> List[TopicPrediction]:
         return [self._classify_one(normalise_text(text)) for text in items]
+
+    def enrich_batch(self, items: Iterable[str]) -> List[TopicPrediction]:
+        """Same predictions as enrich(), faster: nlp.pipe for the text normalisation and one sparse
+        matrix product per batch instead of a cosine_similarity call per text."""
+        topic_ids, scores = self.classify_batch(items)
+        return [TopicPrediction(topic_id=int(t), score=float(s)) for t, s in zip(topic_ids, scores)]
+
+    def classify_batch(self, items: Iterable[str]):
+        """(topic_ids int64[n], scores float32[n]); topic_id -1 / score 0 for texts with no usable content.
+        Document and topic vectors are both L2-normalised by the TfidfVectorizer, so cosine similarity
+        is just the sparse product X @ T.T."""
+        normalised = normalise_texts(items)
+        n = len(normalised)
+        topic_ids = np.full(n, -1, dtype=np.int64)
+        scores = np.zeros(n, dtype=np.float32)
+        usable = [i for i, t in enumerate(normalised) if t.strip()]
+        if not usable:
+            return topic_ids, scores
+        doc_vectors = self._vectorizer.transform([normalised[i] for i in usable])
+        similarities = sp.csr_matrix(doc_vectors @ self._topic_vectors.T)
+        best_idx = np.asarray(similarities.argmax(axis=1)).ravel()
+        best_score = similarities.max(axis=1).toarray().ravel()
+        mapping = np.array([self._topic_id_mapping[i] for i in range(len(self._topic_id_mapping))], dtype=np.int64)
+        topic_ids[usable] = mapping[best_idx]
+        scores[usable] = best_score
+        return topic_ids, scores
 
     def _classify_one(self, text: str) -> TopicPrediction:
         if not text.strip():

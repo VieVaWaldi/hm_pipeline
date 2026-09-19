@@ -1,0 +1,15 @@
+# Pillars classification (pillars.py). Each pillar is a list of whole-word stems: `inclusi*`
+# matches words that START with "inclusi" (inclusive, inclusion, inclusivity), case-insensitive.
+# The result is a bitmask, lowest bit first, in the order below (see side_outputs.PILLARS).
+#
+# `sustainab*` rather than `sustain*`: sustain* also catches "sustained growth", "sustaining"...
+# `global*` is the broadest stem (globalisation, global south, worldwide use of "global"); the match
+# rate is reported per run and flagged above 30% of rows.
+flag_above: 0.30
+
+pillars:
+  inclusive:   ["inclusi*"]
+  sustainable: ["sustainab*"]
+  resilient:   ["resilien*"]
+  innovative:  ["innovat*"]
+  global:      ["global*"]

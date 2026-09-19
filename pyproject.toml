@@ -6,6 +6,7 @@ dependencies = [
     "black",
     "duckdb",
     "duckdb-engine",
+    "en-core-web-sm",
     "graphviz",
     "ipykernel",
     "jupyter",
@@ -22,6 +23,7 @@ dependencies = [
     "python-dateutil",
     "python-dotenv",
     "pyyaml",
+    "rapidfuzz>=3.14.6",
     "scikit-learn",
     "selenium",
     "snakemake",
@@ -42,3 +44,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/common", "src/sources", "src/enrichment", "src/pipelines"]
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }

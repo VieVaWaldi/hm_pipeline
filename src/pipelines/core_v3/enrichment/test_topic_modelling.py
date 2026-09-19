@@ -18,12 +18,13 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
+from common.config.dumps import get_dumps_paths
 from common.config.pipelines import get_pipeline_paths
-from common.file_handling.path_utils import get_project_root_path
 from common.log.logger import setup_logging
 from enrichment.topic_modelling.classifier import TfidfTopicClassifier
 from enrichment.topic_modelling.schema import CREATE_RELATION_TOPIC_SQL, CREATE_TOPIC_SQL
 from pipelines.core_v3.enrichment.seed_topics import seed_topics
+from pipelines.core_v3.enrichment.text_sources import all_text_rows
 
 N_TOPICS = 10
 N_ROWS = 20
@@ -52,30 +53,13 @@ def main() -> None:
 
         con.execute(CREATE_TOPIC_SQL)
         con.execute(CREATE_RELATION_TOPIC_SQL)
-        topics_df = pd.read_csv(
-            get_project_root_path() / "data/topics/openalex_topic_mapping.csv"
-        ).head(N_TOPICS)
+        topics_df = pd.read_csv(get_dumps_paths()["oa_topics"]["path_raw"]).head(N_TOPICS)
         seed_topics(con, topics_df)
 
         classifier = TfidfTopicClassifier.build(topics_df)
 
-        project_rows = con.execute("""
-            SELECT id, CONCAT_WS(' ', title, acronym, summary, keywords,
-                list_aggregate(subjects, 'string_agg', ' ')) AS full_text
-            FROM project WHERE title IS NOT NULL OR summary IS NOT NULL
-        """).fetchall()
-        work_rows = con.execute("""
-            SELECT id, CONCAT_WS(' ',
-                title,
-                descriptions[1],
-                list_aggregate(
-                    list_filter(list_transform(subjects, s -> s.subject.value), x -> x IS NOT NULL),
-                    'string_agg', ' '
-                ),
-                container.name
-            ) AS full_text
-            FROM work WHERE title IS NOT NULL OR len(descriptions) > 0
-        """).fetchall()
+        project_rows = all_text_rows(con, "project")
+        work_rows = all_text_rows(con, "work")
 
         project_predictions = classifier.enrich([text or "" for _, text in project_rows])
         work_predictions = classifier.enrich([text or "" for _, text in work_rows])

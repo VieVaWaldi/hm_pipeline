@@ -2,44 +2,77 @@
 Fills in `organization.geolocation` for core_v3 rows that don't already have
 one — duckdb-aware glue around GeolocationEnricher (geocoder.py).
 
-Targets organizations ROR couldn't resolve (no rorId match, so no ROR-derived
-geolocation from transformation.py's merge step) using legalName + countryCode
-via OpenAlex/Mapbox search instead. Since this only ever touches rows where
-geolocation IS NULL, there's no "is the new value different enough to bother"
-distance check to make — every result found here is new information.
+Targets organizations ROR's id-join couldn't resolve (no rorId, so no
+ROR-derived geolocation from transformation.py's merge step). Tier 1 fuzzy-matches
+legalName against every ROR name/alias offline (free, no network — this is what
+does the work). Tier 2, Mapbox, is off unless you grant a request budget, and
+only fires for rows with city + country, which core_v3's organization table
+doesn't have — so today it's inert here; it's wired for core_v4.
+
+Since this only touches rows where geolocation IS NULL there's no "is the new
+value different enough" distance check — every result is new information.
 
 Usage:
     uv run python -m pipelines.core_v3.enrichment.geolocation
+    uv run python -m pipelines.core_v3.enrichment.geolocation --max-mapbox-requests 1000   # spends money
 """
 
+import argparse
 import logging
-from typing import List
+from typing import Iterator, List
 
 import duckdb
 
+from common.config.dumps import get_dumps_paths
 from common.config.pipelines import get_pipeline_paths
 from common.log.logger import setup_logging
 from enrichment.geolocation.geocoder import GeolocationEnricher, GeolocationResult, InstitutionQuery
+from enrichment.geolocation.name_matcher import NameMatcher, ReferenceLocation
 
-BATCH_SIZE = 32
+BATCH_SIZE = 256
 
 _UNRESOLVED_ORG_QUERY = """
     SELECT id, legalName, countryCode
     FROM organization
-    WHERE geolocation IS NULL AND legalName IS NOT NULL
+    WHERE geolocation IS NULL AND legalName IS NOT NULL AND id > {last_id}
     ORDER BY id
-    LIMIT {limit} OFFSET {offset}
+    LIMIT {limit}
+"""
+
+# Every non-acronym ROR name/alias with the org's primary GeoNames point.
+_ROR_REFERENCE_QUERY = """
+    SELECT n.value,
+           r.locations[1].geonames_details.country_code,
+           r.locations[1].geonames_details.lat,
+           r.locations[1].geonames_details.lng
+    FROM organizations r, unnest(r.names) t(n)
+    WHERE r.locations[1].geonames_details.lat IS NOT NULL
+      AND NOT list_contains(n.types, 'acronym')
 """
 
 
-def _batch_iter(con: duckdb.DuckDBPyConnection, offset_start: int = 0):
-    offset = offset_start
+def load_ror_matcher() -> NameMatcher:
+    ror_path = get_dumps_paths()["ror_dump"]["path_duck"]
+    ror = duckdb.connect(ror_path, read_only=True)
+    try:
+        rows = ror.execute(_ROR_REFERENCE_QUERY).fetchall()
+    finally:
+        ror.close()
+    logging.info(f"Loaded {len(rows):,} ROR name/alias reference rows from {ror_path}")
+    return NameMatcher(ReferenceLocation(*row) for row in rows)
+
+
+def _batch_iter(con: duckdb.DuckDBPyConnection) -> Iterator[list]:
+    # Keyset pagination (id > last_id), not OFFSET: rows resolved in earlier
+    # batches leave the `geolocation IS NULL` set, so an offset would skip
+    # unprocessed rows.
+    last_id = -1
     while True:
-        rows = con.execute(_UNRESOLVED_ORG_QUERY.format(limit=BATCH_SIZE, offset=offset)).fetchall()
+        rows = con.execute(_UNRESOLVED_ORG_QUERY.format(limit=BATCH_SIZE, last_id=last_id)).fetchall()
         if not rows:
             break
         yield rows
-        offset += BATCH_SIZE
+        last_id = rows[-1][0]
 
 
 def _write_results(con: duckdb.DuckDBPyConnection, results: List[GeolocationResult]) -> None:
@@ -49,12 +82,10 @@ def _write_results(con: duckdb.DuckDBPyConnection, results: List[GeolocationResu
     con.executemany("UPDATE organization SET geolocation = ? WHERE id = ?", records)
 
 
-def run(con: duckdb.DuckDBPyConnection, enricher: GeolocationEnricher, offset: int = 0) -> None:
+def run(con: duckdb.DuckDBPyConnection, enricher: GeolocationEnricher) -> None:
     stats = {"processed": 0, "updated": 0}
-    if offset > 0:
-        logging.info(f"Skipping {offset} rows.")
 
-    for idx, batch in enumerate(_batch_iter(con, offset_start=offset)):
+    for idx, batch in enumerate(_batch_iter(con)):
         queries = [InstitutionQuery(id=row[0], name=row[1], country=row[2]) for row in batch]
         results = enricher.enrich(queries)
 
@@ -71,13 +102,24 @@ def run(con: duckdb.DuckDBPyConnection, enricher: GeolocationEnricher, offset: i
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Fill in organization.geolocation for core_v3.")
+    parser.add_argument(
+        "--max-mapbox-requests",
+        type=int,
+        default=0,
+        help="Hard cap on paid Mapbox permanent-geocoding requests ($5/1,000). 0 = never spend.",
+    )
+    args = parser.parse_args()
+
     setup_logging("enrichment-geolocation", "run")
     db_path = get_pipeline_paths()["core_v3"]["path_staging_duck"]
     logging.info(f"Starting geolocation enrichment against {db_path}")
+    logging.info(f"Mapbox budget: {args.max_mapbox_requests} requests")
+
+    enricher = GeolocationEnricher(matcher=load_ror_matcher(), max_mapbox_requests=args.max_mapbox_requests)
 
     con = duckdb.connect(db_path)
     try:
-        enricher = GeolocationEnricher()
         run(con, enricher)
     finally:
         con.close()

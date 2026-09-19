@@ -9,6 +9,12 @@ is genuinely core_v3-specific, not generic. core_v4 gets its own
 rules/pipeline/core_v4/enrichment.smk once it has real tables — this one
 doesn't get repointed at core_v4 later, a new one gets added alongside it.
 
+All of them write into the same duckdb file, which is single-writer — run in
+parallel (Snakemake would, with --cores > 1) they die on the file lock. So they
+form one chain: seed_topics -> topic_modelling -> geolocation -> dch_classification.
+Only seed_topics -> topic_modelling is a real data dependency; the rest are
+ordered purely to serialize writes.
+
 Each enrichment writes straight into that duckdb file (ALTER/UPDATE in place),
 so there's no output file to track — a touch() sentinel under
 .snakemake/sentinels/enrichment/core_v3/ stands in instead. Delete a sentinel
@@ -34,6 +40,8 @@ rule topic_modelling:
 
 
 rule geolocation:
+    input:
+        rules.topic_modelling.output,
     output:
         touch(".snakemake/sentinels/enrichment/core_v3/geolocation_done"),
     shell:
@@ -41,6 +49,8 @@ rule geolocation:
 
 
 rule dch_classification:
+    input:
+        rules.geolocation.output,
     output:
         touch(".snakemake/sentinels/enrichment/core_v3/dch_classification_done"),
     shell:

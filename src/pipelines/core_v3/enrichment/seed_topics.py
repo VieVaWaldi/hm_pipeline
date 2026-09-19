@@ -12,8 +12,8 @@ import duckdb
 import numpy as np
 import pandas as pd
 
+from common.config.dumps import get_dumps_paths
 from common.config.pipelines import get_pipeline_paths
-from common.file_handling.path_utils import get_project_root_path
 from common.log.logger import setup_logging
 from enrichment.topic_modelling.schema import CREATE_RELATION_TOPIC_SQL, CREATE_TOPIC_SQL
 
@@ -47,7 +47,7 @@ def main() -> None:
     con.execute(CREATE_TOPIC_SQL)
     con.execute(CREATE_RELATION_TOPIC_SQL)
 
-    df = pd.read_csv(get_project_root_path() / "data/topics/openalex_topic_mapping.csv")
+    df = pd.read_csv(get_dumps_paths()["oa_topics"]["path_raw"])
     logging.info(f"Loaded {len(df)} topics from CSV.")
     seed_topics(con, df)
     con.close()

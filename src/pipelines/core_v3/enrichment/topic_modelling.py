@@ -20,6 +20,7 @@ import duckdb
 import pandas as pd
 import psutil
 
+from common.config.dumps import get_dumps_paths
 from common.config.pipelines import get_pipeline_paths
 from common.file_handling.path_utils import get_project_root_path
 from common.log.logger import setup_logging
@@ -75,7 +76,7 @@ def load_or_build_classifier(con: duckdb.DuckDBPyConnection, model_path: Path) -
     if model_path.exists():
         return TfidfTopicClassifier.load(model_path)
     logging.info("Building new TF-IDF model...")
-    topics_df = pd.read_csv(get_project_root_path() / "data/topics/openalex_topic_mapping.csv")
+    topics_df = pd.read_csv(get_dumps_paths()["oa_topics"]["path_raw"])
     texts = sample_texts(con, "project", sample_size=50000)
     classifier = TfidfTopicClassifier.build(topics_df, texts)
     classifier.save(model_path)

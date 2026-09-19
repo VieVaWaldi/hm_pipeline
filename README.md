@@ -5,17 +5,27 @@ A data pipeline, data model and warehouse for the [Heritage Monitor](https://her
 ## Orchestration
 
 ```bash
-# -n -p dry-runs and prints shell commands.
+# -n -p dry-runs and prints shell commands
 
-# For DEV 
+# To test the entire pipeline
+uv run snakemake -n -p -s orchestration/Snakefile all
+
+# Run individual dump rules with (load_minorities, load_oa_topics, load_ror_dump, load_openaire_dump)
+uv run snakemake -s orchestration/Snakefile load_ror_dump
+
+# For api runner sources (arxiv, cordis, coreac) — query_id values are in config/api_runner.yaml
+uv run python -m common.api_runner.run_extractor --source cordis --query_id <query_id>
+uv run python -m common.api_runner.run_loader --source cordis --query_id <query_id> --db duck
+
+# For DEV
 uv run snakemake -s orchestration/Snakefile --cores 4 extract_sources_dev  # extraction only
 uv run snakemake -s orchestration/Snakefile --cores 4 sources_dev          # load, then per-source reports
 
-# For PROD (HPC) --workflow-profile orchestration/profiles/slurm
-uv run snakemake -s orchestration/Snakefile --cores 4 extract_core_v3_sources # extraction only
-uv run snakemake -s orchestration/Snakefile --cores 4 core_v3_sources         # load, then per-source reports
+# For PROD (HPC)
+ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm extract_core_v3_sources # extraction only
+ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v3_sources         # load, then per-source reports
 
-# to just get reports for all duckdb files
+# to just get reports for all duckdb files, or a specific one with --only <substring>
 uv run python -m common.report.generate_reports
 ```
 

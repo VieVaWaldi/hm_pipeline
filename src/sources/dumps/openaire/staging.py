@@ -3,7 +3,7 @@ OpenAIRE Staging — Transform openaire_raw.duckdb → openaire_staging.duckdb
 
 Applies per table:
   - ID hashing (all 4 tables): id → hash(id) as new PK; old id kept as openaireId
-  - Column sanitization via Python UDFs
+  - Column sanitization via DuckDB macros (common.sanitizers.duck_macros)
   - Struct unpacking: country → countryCode; pids → rorId, wikiId
   - Column drops, renames, row filters
   - frameworkProgrammes extraction from fundings[].fundingStream
@@ -17,13 +17,7 @@ from pathlib import Path
 
 from common.database.duck.create_connection import create_duck_connection
 from common.file_handling.file_utils import ensure_path_exists
-from common.sanitizers.parse_text import (
-    parse_content,
-    parse_names_and_identifiers,
-    parse_string,
-    parse_titles_and_labels,
-    parse_web_resources,
-)
+from common.sanitizers.duck_macros import register_sanitizer_macros
 from common.config.dumps import get_dumps_paths
 from common.log.logger import setup_logging
 from common.log.timer import log_run_time
@@ -54,6 +48,13 @@ STAGING_DB = Path(
 
 ensure_path_exists(STAGING_DB)
 
+# Staging is a full rebuild (plain CREATE TABLE), so a leftover file from an
+# aborted/previous run would fail with "table already exists". Start clean.
+for stale in (STAGING_DB, STAGING_DB.with_name(STAGING_DB.name + ".wal")):
+    if stale.exists():
+        logging.warning(f"Removing existing staging file: {stale}")
+        stale.unlink()
+
 logging.info("OPENAIRE STAGING")
 logging.info(f"Source: {RAW_DB}")
 logging.info(f"Target: {STAGING_DB}")
@@ -68,15 +69,9 @@ total_start = datetime.now()
 
 
 # -------------------------------------------------------------------------
-# Register Python UDFs
+# Register sanitizer macros (SQL, parallel; mirrors common/sanitizers/parse_text.py)
 # -------------------------------------------------------------------------
-con.create_function(
-    "sanitize_name", parse_names_and_identifiers, null_handling="special"
-)
-con.create_function("sanitize_title", parse_titles_and_labels, null_handling="special")
-con.create_function("sanitize_content", parse_content, null_handling="special")
-con.create_function("sanitize_url", parse_web_resources, null_handling="special")
-con.create_function("sanitize_string", parse_string, null_handling="special")
+register_sanitizer_macros(con)
 
 
 # -------------------------------------------------------------------------

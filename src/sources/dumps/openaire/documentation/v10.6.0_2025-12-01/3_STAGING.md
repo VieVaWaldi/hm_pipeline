@@ -130,7 +130,7 @@ Transformation:
 
 ## Sanitization Steps Detail
 
-All sanitizers live in `src/lib/sanitizers/`. Scalar UDFs are registered via `con.create_function(...)` and applied with `UPDATE ... SET col = udf(col)`. Array columns use DuckDB's `list_transform(col, x -> udf(x))` and then filter out NULLs with `list_filter(..., x -> x IS NOT NULL)`.
+The `sanitize_*` functions are DuckDB SQL macros in `src/common/sanitizers/duck_macros.py` (registered via `register_sanitizer_macros(con)`). They mirror the Python `parse_*` functions in `src/common/sanitizers/parse_text.py` exactly (enforced by `tests/test_duck_macros.py`) but run parallel in DuckDB instead of under the Python GIL. Array columns use DuckDB's `list_transform(col, x -> udf(x))` and then filter out NULLs with `list_filter(..., x -> x IS NOT NULL)`.
 
 * Some OpenAire columns like organization.legalName seem to have BOM related issues which also need to be sanitized eg value.strip('\ufeff\u200b\u200c\u200d\ufffe').
 * 

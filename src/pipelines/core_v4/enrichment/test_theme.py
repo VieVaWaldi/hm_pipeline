@@ -71,3 +71,26 @@ def test_themes_yaml_matches_brief():
     assert t["Economy"]["fields"] == [20] and t["Economy"]["topics"] == [12033, 14219, 12312, 14352, 14433]
     assert t["Tourism"]["subfields"] == [1409]
     assert t["Tourism"]["topics"] == [10055, 11793, 11925, 12399, 12456, 12584, 12402, 11474, 11410]
+
+
+def test_tier_filters_topics_through_staging_and_stamps(env, tmp_path):
+    from pipelines.core_v4.enrichment.fingerprint import staging_stamp
+    from pipelines.core_v4.enrichment.fixtures import make_staging_fixture, work_id
+
+    con, edir, csv, themes = env
+    stg = make_staging_fixture(tmp_path / "stg.duckdb")
+    con.execute(f"ATTACH '{stg}' AS stg (READ_ONLY)")
+    topics = SideOutput(edir, "topics", "work", tier=0)
+    topics.begin()
+    # a tier-0 work and a tier-1 work both have a topic row (e.g. tier 1 is partially there)
+    topics.write(pa.table({"id": pa.array([work_id(1), work_id(3)], pa.uint64()), "topic_id": pa.array([1, 1], pa.int32()),
+                           "score": pa.array([0.9, 0.9], pa.float32())}))
+    topics.finish()
+    with pytest.raises(ValueError, match="staging catalog"):
+        theme.run(con, "work", edir, csv, themes, 0.1, tier=0)
+    n = theme.run(con, "work", edir, csv, themes, 0.1, tier=0, staging_catalog="stg")
+    assert n == 1
+    out = SideOutput(edir, "theme", "work")
+    assert dict(duckdb.sql(f"SELECT id, theme FROM ({out.read_all_sql()})").fetchall()) == {work_id(1): "Economy"}
+    assert out.is_complete(0) and not out.is_complete()
+    assert out.completion(0).stamp == staging_stamp(con, "work", 0, "stg")

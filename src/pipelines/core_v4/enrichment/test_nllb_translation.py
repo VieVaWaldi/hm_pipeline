@@ -1,3 +1,5 @@
+import json
+
 import duckdb
 import pyarrow as pa
 import pytest
@@ -133,3 +135,46 @@ def test_runaway_translation_is_dropped():
 
     nllb, seen = process_rows([(1, "title", "Die Zukunft der Museen")], FakeLid(), Runaway())
     assert nllb == [] and seen[0]["translated"] is False and seen[0]["src_lang"] == "deu_Latn"
+
+
+# ---- tiers and the staging fingerprint -----------------------------------------------------
+def test_tier_run_translates_only_that_tier_and_completes_it_alone(staging, tmp_path):
+    edir = tmp_path / "enrich"
+    counters = run_entity(staging, "work", ["title", "description"], FakeLid(), FakeTranslator(), str(edir), tier=0)
+    assert counters["rows"] == 2  # works 1 and 2; work 3 (tier 1) is not touched
+    seen = SideOutput(edir, "nllb/seen", "work")
+    assert seen.is_complete(0) and not seen.is_complete() and not seen.is_complete(1)
+    assert (seen.dir / "_SUCCESS.tier0").exists()
+    ids = {r[0] for r in seen.read_all(duckdb.connect()).fetchall()}
+    assert ids == {work_id(1), work_id(2)}
+    # text enrichments may read tier 0 now, and only tier 0
+    text_sql("work", ["title"], enrichment_dir=edir, tier=0)
+    with pytest.raises(NllbNotReadyError):
+        text_sql("work", ["title"], enrichment_dir=edir)
+
+    # tier 1 later, with a different shard count: both tiers complete, `_SUCCESS` appears
+    for i in range(2):
+        run_entity(staging, "work", ["title", "description"], FakeLid(), FakeTranslator(), str(edir), tier=1, shard=Shard(i, 2))
+    assert seen.is_complete() and (seen.dir / "_SUCCESS").exists()
+    assert {r[0] for r in seen.read_all(duckdb.connect()).fetchall()} == {work_id(1), work_id(2), work_id(3)}
+    assert run_entity(staging, "work", ["title", "description"], FakeLid(), FakeTranslator(), str(edir))["rows"] == 0  # nothing left
+
+
+def test_success_records_the_staging_fingerprint(staging, tmp_path):
+    from pipelines.core_v4.enrichment.fingerprint import staging_stamp
+
+    edir = tmp_path / "enrich"
+    run_entity(staging, "work", ["title", "description"], FakeLid(), FakeTranslator(), str(edir), tier=0)
+    run_entity(staging, "work", ["title", "description"], FakeLid(), FakeTranslator(), str(edir), tier=1)
+    for name in ("nllb", "nllb/seen"):
+        o = SideOutput(edir, name, "work")
+        assert json.loads(o.tier_success_path(0).read_text()) == staging_stamp(staging, "work", 0)
+        assert json.loads(o.tier_success_path(1).read_text()) == staging_stamp(staging, "work", 1)
+        assert o.completion().stamp == staging_stamp(staging, "work")  # `_SUCCESS`: both tiers combined
+
+
+def test_tier_needs_the_link_tier_column(tmp_path):
+    con = duckdb.connect(str(make_staging_fixture(tmp_path / "s.duckdb")))
+    con.execute("ALTER TABLE work DROP COLUMN link_tier")
+    with pytest.raises(RuntimeError, match="link_tier"):
+        run_entity(con, "work", ["title"], FakeLid(), FakeTranslator(), str(tmp_path / "e"), tier=0)

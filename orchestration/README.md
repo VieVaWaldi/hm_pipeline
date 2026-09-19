@@ -106,27 +106,55 @@ ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm core_v
 
 ### core_v4
 
-`core_v4_projects`, `core_v4_works` and `core_v4` (both) run the core_v4 chain: staging (transformation) ->
-enrichments -> assemble -> reports. None of them is part of `all` or `core_v3`. HPC-only for real runs.
+`core_v4_projects`, `core_v4_works_linked`, `core_v4_works` and `core_v4` (all of them) run the core_v4 chain: staging
+(transformation) -> enrichments -> assemble -> reports. None of them is part of `all` or `core_v3`. HPC-only for real runs.
 The rules are in `rules/pipeline/core_v4/`; the enrichments are documented in
 `src/pipelines/core_v4/enrichment/README.md`.
 
 ```
 core_v4_projects:  staging -> {nllb -> topics -> theme, minorities, pillars, dch}(project), {regions, geolocation}(organization)
                    -> assemble --entity project -> reports/pipelines/core_v4/{staging,projects}.md
-core_v4_works:     staging -> {nllb -> topics -> theme, minorities, pillars, dch}(work)
-                   -> assemble --entity work -> reports/pipelines/core_v4/{staging,works}.md
+core_v4_works_linked: staging -> {nllb -> topics -> theme, minorities, pillars, dch}(work, --tier 0: the project-linked works, ~5M)
+                   -> assemble --entity work --tier 0 -> reports/pipelines/core_v4/{staging,works_linked}.md
+core_v4_works:     core_v4_works_linked, then the same for tier 1 (the org-only works, ~45M)
+                   -> assemble --entity work -> reports/pipelines/core_v4/{staging,works_linked,works}.md
 ```
 
-Projects first: every works enrichment has the projects duckdb (`path_duck_projects`) as an ordering-only input
-(`ancient()`), so `core_v4_works` never starts before the projects chain has assembled, and pulls the projects
-chain in if it has not run. Rebuilding the projects duckdb later does not rerun the works enrichments.
+Order of importance: projects first, then the project-linked works, then the rest.
+- Every tier-0 works enrichment has the projects duckdb (`path_duck_projects`) as an ordering-only input (`ancient()`),
+  so `core_v4_works_linked` never starts before the projects chain has assembled and pulls it in if it has not run.
+- Every tier-1 enrichment has its own tier-0 marker (`_SUCCESS.tier0`) as an ordering-only input, so tier 0 always goes
+  first for GPU time and everything else. Rebuilding an earlier stage later does not rerun the later ones.
+- `core_v4_works_linked` builds `path_duck_works_linked` (`core_v4_works_linked.duckdb`): the same tables and columns as the
+  works file, rows of tier 1 (and their relations) absent. It is servable long before the full file exists. `core_v4_works`
+  also asks for it, so the full file is a superset built later; both keep `link_tier` (0 = project-linked, 1 = org-only).
+- The tier chains share the side-output directories: tier-0 enrichments write `part-t0-*` files and `_SUCCESS.tier0`,
+  tier-1 ones `part-t1-*`, and `_SUCCESS` (everything complete) appears when both tiers are. Details:
+  `src/pipelines/core_v4/enrichment/README.md`.
+
+Job counts of the dry runs (`snakemake -n`, no limit, default config, geolocation off, nothing built yet; this includes the
+transformation and the reports):
+
+| target | jobs | of which |
+|---|---|---|
+| `core_v4_projects` | 45 | transformation 1, topics model 1, nllb 4 / topics 8 / minorities 8 / pillars 8 / dch 2 / theme 1 / regions 1 shards, success 7, assemble 1, reports 2 |
+| `core_v4_works_linked` | 85 | the projects chain up to its assembled duckdb (pulled in for ordering) plus tier 0: nllb 6 / topics 8 / minorities 8 / pillars 8 / dch 2 / theme 1 shards, success_tier0 6, assemble works_linked 1, reports 2 (staging, works_linked) |
+| `core_v4_works` | 214 | everything above (with the projects report) plus the tier-1 chain: nllb 16 / topics 32 / minorities 32 / pillars 32 / dch 8 / theme 1 shards, success 6, assemble works 1, report works |
+| `core_v4` | 215 | works + the umbrella target |
+
+(With `--config limit=N` every enrichment is one shard, and `skip=...` removes the enrichments: `core_v4_works_linked --config
+limit=2000 skip=nllb,dch` is 34 jobs.)
 
 ```bash
-# full run on prod, projects first (add --keep-going to let independent jobs finish when one fails)
+# full run on prod, in order of importance (add --keep-going to let independent jobs finish when one fails):
+# 1. the projects (and organizations),  2. the project-linked works (tier 0),  3. everything else (tier 1)
 ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v4_projects
+ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v4_works_linked
 ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v4_works
-# (or both in one go: ... core_v4)
+# (or all in one go: ... core_v4; the DAG still runs projects, tier 0, tier 1 in that order)
+# Each later command only runs what is missing. Assemble the tier-0 file, then the full one, by hand if needed:
+#   uv run python -m pipelines.core_v4.assemble --entity work --tier 0     # -> path_duck_works_linked
+#   uv run python -m pipelines.core_v4.assemble --entity work              # -> path_duck_works
 
 # dry run (nothing is executed; shows job counts and shard fan-out)
 ENV=prod uv run snakemake -n -s orchestration/Snakefile core_v4_projects
@@ -149,6 +177,7 @@ Config keys (`--config key=value ...`), all optional:
 | `geolocation_max_requests=N` | Mapbox budget; geolocation is only part of the DAG when N > 0 (default: off) |
 | `geolocation_permanent=true` | send `--permanent` (billed, $5/1,000). Default is temporary geocoding (free tier) |
 | `shards=N`, `shards_<name>=N` | override the shard count of every / one enrichment (theme, regions, geolocation are always 1) |
+| `shards_<name>_t0=N`, `shards_<name>_t1=N` | the same for the tier-0 / tier-1 works unit only (e.g. `shards_nllb_t1=24`) |
 
 Local end-to-end run on a synthetic sample (dev machine, no GPU, no OpenAire dump; verified in Phase 3E). The inputs the DAG
 expects are the OpenAire staging v4 (`openaire_dump.path_duck_staging_v4`), `ror_raw.duckdb` and the Cordis
@@ -174,22 +203,42 @@ ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestr
 If the budget runs out the CLI writes no `_SUCCESS`, the job fails with a missing-output error and assemble does not
 run; rerun with a larger number. Without `geolocation_max_requests`, assemble is called with `--skip geolocation`.
 
-Sharding and idempotency: each (enrichment, entity) is N jobs (`--shard I/N`, one `temp()` sentinel each under
-`.snakemake/sentinels/enrichment/core_v4/...`) and one local `core_v4_success` job that writes the real artifact,
-`<enrichment_dir>/<name>/<entity>/_SUCCESS`, through `SideOutput`. Downstream rules depend on that file, so what is
-done is decided by files on disk. To force one enrichment to rerun (it resumes from its parquet parts, and everything
+Sharding and idempotency: each (enrichment, unit) is N jobs (`--shard I/N`, one `temp()` sentinel each under
+`.snakemake/sentinels/enrichment/core_v4/<name>/<unit>/`, unit = project, organization, work-t0, work-t1) and one local
+`core_v4_success` job that writes the real artifact, `<enrichment_dir>/<name>/<entity>/_SUCCESS` (`_SUCCESS.tier0` for
+work-t0, written by `core_v4_success_tier0`), through `SideOutput`. Downstream rules depend on that file, so what is
+done is decided by files on disk. The marker holds the staging fingerprint the enrichment ran against; assemble refuses
+side outputs whose fingerprint is not the current staging's (a staging rebuilt after the enrichments ran), see below. To force one enrichment to rerun (it resumes from its parquet parts, and everything
 downstream reruns too), `--forcerun` its `_SUCCESS` (**absolute path**; a relative path fails with `MissingRuleException`):
 
 ```bash
 ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v4_projects \
     --forcerun $PWD/data/enrichment/core_v4/dch/project/_SUCCESS   # path under /work/lu72hip/... on prod, whatever config says
+# tier 0 of works: .../dch/work/_SUCCESS.tier0 with core_v4_works_linked; tier 1 (and the whole): .../dch/work/_SUCCESS
 ```
+
+A staging built before `link_tier` existed (Phase 3F) must be rebuilt (`--forcerun core_v4_transformation`): the tier
+enrichments stop at start with "work has no link_tier column".
+
+Stale side outputs. Side outputs are never cleared when the staging is rebuilt (a rebuild with another `limit` / `work_cap`
+leaves orphan rows). Every `_SUCCESS` therefore records a fingerprint of the id set the enrichment ran against, and assemble
+compares it with the current staging (per tier for `--tier 0`): on a mismatch it stops and names the side outputs. Either
+rerun those enrichments, or pass `--allow-stale name1,name2` to `pipelines.core_v4.assemble` (not exposed as a Snakemake
+config key on purpose). `--allow-stale nllb` keeps the expensive cached translations: rows whose id is still in staging get
+them, the others stay untranslated, ids that vanished are ignored. Risk: a row whose text changed under the same id keeps
+its old translation. An empty `_SUCCESS` from before the fingerprint counts as stale.
 
 Only deleting `_SUCCESS` is not enough: Snakemake does not rebuild a missing intermediate file while the assembled
 duckdbs and reports downstream of it are up to date (the target then says "Nothing to be done").
 
-Shard counts and GPU resources are in `rules/pipeline/core_v4/enrichment.smk` (`_CORE_V4_DEFAULT_SHARDS`); the
-NLLB/DCH values are provisional until they are set from the measured throughput.
+Shard counts and GPU resources are in `rules/pipeline/core_v4/enrichment.smk` (`_CORE_V4_DEFAULT_SHARDS`). NLLB is sized from
+the measured numbers (`src/enrichment/nllb_translator/README.md`: 1.3B distilled, CTranslate2 float16, beam 1, 13.3k source
+tokens/s, 10.1 GB VRAM, 421 works/s end to end, ~37 A100-hours for 50M works): `gpu-test`, `gres=gpu:1`, **no `a100_80gb`
+constraint** (10 GB is enough; DCH keeps its own 80 GB constraint), projects 4 shards x 6 h, works tier 0 6 shards x 4 h,
+works tier 1 16 shards x 6 h, each about 3x the expected time so a slower card or longer texts still fit under the 12 h limit
+(a timed-out shard resumes). The model is read from `data/models/nllb` through the download guard; compute nodes have no
+internet, so download it once on the login node (`uv run python -m enrichment.nllb_translator.download`) before the first
+GPU job, the rule sets `HF_HUB_OFFLINE=1`. The other numbers are still provisional.
 
 ### Running Individually
 

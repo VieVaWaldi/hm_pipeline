@@ -14,8 +14,8 @@ Tables are seeded first, then columns are added (no new tables). It differs from
 
 | | core_v3 | core_v4 |
 |---|---|---|
-| works | all 218M copied | trimmed **at seed time** to `work_cap` (default 50M), unlinked works never copied |
-| relation | all | only product-side relations of kept works; all project -> organization |
+| works | all 218M copied | trimmed **at seed time** to `work_cap` (default 50M), unlinked works never copied; `link_tier` column |
+| relation | all | only product-side relations of kept works; all project -> organization; rows with a missing project / organization endpoint dropped |
 | countries | as found | `common.countries` (organization.countryCode, work.countries) |
 | ROR | `geolocation = [lat, lng]` (a `[NULL, NULL]` array when ROR has none) | same order, but NULL when ROR has no coordinates, plus `geolocation_source` |
 | Cordis project match | `grantId = id_original` | same, plus a DOI fallback |
@@ -27,8 +27,15 @@ Usage:
 
 ```
 python -m pipelines.core_v4.transformation [--variant full|limit] [--staging-db PATH] [--limit N] [--work-cap N]
-                                           [--core-v2-geo PATH] [--core-v2-pic PATH] [--mem-mb M] [--threads T]
+                                           [--core-v2-geo PATH] [--core-v2-pic PATH] [--allow-missing-columns] [--mem-mb M] [--threads T]
 ```
+
+**Required staging columns.** The staging v4 input must have `project.doi` (the DOI fallback of the Cordis project match) and
+`work.countries` (country normalisation). An older staging built before those columns existed would lose both steps
+silently, so in the **full variant with the configured staging** a missing column aborts before anything is touched (the
+previous staging is left alone) with a message that points at the rebuild (`python -m sources.dumps.openaire.staging --target v4`,
+rule `stage_openaire_dump_v4`). `--allow-missing-columns` runs anyway. The limit variant and an explicit `--staging-db` stay
+tolerant (tests, ad-hoc runs) but log a WARNING naming each skipped step.
 
 `--mem-mb` / `--threads` are the shared `core_v3.resources` flags. `--limit N` implies `--variant limit`; `--variant full`
 together with `--limit` is rejected. `--variant limit` without `--limit` uses N = 1000.
@@ -46,9 +53,14 @@ together with `--limit` is rejected. `--variant limit` without `--limit` uses N 
    the works on the cutoff date are chosen the same way on every run. Preferring works with a description matters for NLLB and the
    text enrichments.
 4. `work` = staging `work` joined to `_work_keep` (no sort of the wide table). `publicationDate` is set to NULL for future dates,
-   `countries` normalised (`list_sort(list_distinct(norm_cc(...)))`, invalid codes dropped).
-5. `relation` = all project -> organization rows (hasParticipant), plus product-side rows only for kept works. The final
-   verification logs the number of relation rows that point at a dropped work (must be 0).
+   `countries` normalised (`list_sort(list_distinct(norm_cc(...)))`, invalid codes dropped). **`link_tier SMALLINT`** is added as
+   the last column: the tier of `_work_link` (0 = project-linked, 1 = org-only), which is what `--tier 0|1` of the enrichments and
+   `assemble --tier 0` filter on, so the project-linked works can be enriched, assembled and served before the rest.
+5. `relation` = all project -> organization rows (hasParticipant), plus product-side rows only for kept works. Rows whose project
+   or organization endpoint is missing from `project` / `organization` are dropped too (staging v4 has such dangling references:
+   a project or organization that is referenced but was never harvested); the log prints how many rows lost the project, the
+   organization, and how many rows in all (`result["seed"]["dangling_endpoints"]`). The final verification logs the number of
+   relation rows that point at a dropped work and at a missing project / organization (both must be 0).
 
 The log prints works in staging, linked, dropped as unlinked, future-dated, total/kept per tier, and where the cutoff falls
 (tier, date, kept of the works on that date).
@@ -185,7 +197,8 @@ ROR and Cordis are joined in full (attached, never copied). The full-run tests c
 ## Tests
 
 `ENV=dev uv run python -m pytest src/pipelines/core_v4/test_transformation.py`. They build tiny OpenAire staging, ROR and Cordis
-duckdb files in a tmp dir. Covered: tiers, unlinked works dropped, cap ordering, undated last, deterministic tie-break at the cutoff
+duckdb files in a tmp dir. Covered: `link_tier` (values, last column, follows the trim), dangling relations dropped and counted,
+the required-column check (abort in the full variant, `--allow-missing-columns`, warning in the limit variant / with `--staging-db`), tiers, unlinked works dropped, cap ordering, undated last, deterministic tie-break at the cutoff
 date (also with reversed insertion order), future dates nulled, relation cascade, country normalisation, rebuild from scratch, ROR
 `[lat, lng]`, PIC before name+country, name-only never matches, no match without country, relation columns only on existing
 relations, DOI fallback, addresses only on matched orgs, Cordis coordinates only when geolocation was NULL, institution choice, the

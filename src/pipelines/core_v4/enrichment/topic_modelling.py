@@ -39,6 +39,7 @@ from common.config.dumps import get_dumps_paths
 from common.log.logger import setup_logging
 from pipelines.core_v3.resources import add_resource_args, apply_duckdb_limits
 from pipelines.core_v4.enrichment.cli import add_common_args, resolve
+from pipelines.core_v4.enrichment.fingerprint import staging_stamp
 from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
 from pipelines.core_v4.enrichment.text_sources import Entity, open_staging, text_batches, text_sql
 
@@ -123,17 +124,19 @@ def run(
     dry_run: bool = False,
     allow_untranslated: bool = False,
     batch_rows: int = BATCH_ROWS,
+    tier: Optional[int] = None,
 ) -> int:
     """Classifies every not-yet-done row of `entity` (this shard's) and writes one part per batch.
     Returns the number of rows classified in this call."""
-    out = SideOutput(enrichment_dir, "topics", entity, shard=shard)
+    stamp = staging_stamp(con, entity, tier)
+    out = SideOutput(enrichment_dir, "topics", entity, shard=shard, tier=tier)
     if not dry_run:
         out.begin()
     done_sql = None if dry_run else out.done_ids_sql()
     total, t0 = 0, time.time()
     for batch in text_batches(
         con, entity, TOPIC_FIELDS[entity], batch_size=batch_rows, enrichment_dir=enrichment_dir,
-        allow_untranslated=allow_untranslated, shard=shard, exclude_ids_sql=done_sql, limit=limit,
+        allow_untranslated=allow_untranslated, shard=shard, exclude_ids_sql=done_sql, limit=limit, tier=tier,
     ):
         ids = batch.column("id").to_numpy()
         texts = batch.column("full_text").to_pylist()
@@ -148,7 +151,7 @@ def run(
         total += len(ids)
         logging.info(f"[{entity}] {total:,} docs, {total / max(time.time() - t0, 1e-9):,.0f} docs/s")
     if not dry_run and limit is None:
-        out.finish()  # a --limit run is partial: never mark it complete
+        out.finish(stamp)  # a --limit run is partial: never mark it complete
     return total
 
 
@@ -176,7 +179,7 @@ def main() -> None:
             for entity in r.entities:
                 logging.info(f"=== topics: {entity} (shard {r.shard}) ===")
                 run(con, entity, r.enrichment_dir, score, shard=r.shard, limit=r.limit, dry_run=r.dry_run,
-                    allow_untranslated=args.allow_untranslated)
+                    allow_untranslated=args.allow_untranslated, tier=r.tier)
         finally:
             if executor:
                 executor.shutdown()

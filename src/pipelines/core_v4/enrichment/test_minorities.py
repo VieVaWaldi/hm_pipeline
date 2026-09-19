@@ -82,3 +82,14 @@ def test_refuses_untranslated_unless_allowed(staging, tmp_path):
 
     with pytest.raises(NllbNotReadyError):
         run_entity(staging, "work", GROUPS, RULES, str(tmp_path), Shard(), workers=2)
+
+
+def test_tier_run_marks_only_tier_zero_complete(staging, tmp_path):
+    run(staging, tmp_path, "work", tier=0)
+    assert SideOutput(tmp_path, "minorities", "work").is_complete(0)
+    assert not SideOutput(tmp_path, "minorities", "work").is_complete()
+    assert len(seen_ids(tmp_path, "work")) == 2  # works 1, 2 (work 3 is tier 1, work 4 has no text)
+    assert (tmp_path / "minorities" / "work" / "_keyword_counts-t0-0.json").exists()
+    run(staging, tmp_path, "work", tier=1)
+    assert SideOutput(tmp_path, "minorities", "work").is_complete()
+    assert hits(tmp_path, "work") == {work_id(2): ["Q8060"]}

@@ -38,6 +38,7 @@ from common.countries import register_country_macro
 from common.log.logger import setup_logging
 from enrichment.geolocation.geocoder import Estimate, GeolocationEnricher, InstitutionQuery
 from pipelines.core_v4.enrichment.cli import add_common_args, resolve
+from pipelines.core_v4.enrichment.fingerprint import staging_stamp
 from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
 
 READ_BATCH = 5_000
@@ -141,7 +142,7 @@ def run(
     if not write:
         logging.info(f"dry run (--test): {written:,} rows would be written; nothing was written")
     elif enricher.stats.deferred == 0:
-        out.finish()
+        out.finish(staging_stamp(con, "organization"))
     else:
         logging.warning(
             f"{enricher.stats.deferred:,} orgs deferred: the request budget ({enricher.max_requests:,}) ran out, "

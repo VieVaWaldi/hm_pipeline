@@ -16,6 +16,9 @@ It refuses to run unless nllb/<entity> and nllb/seen/<entity> both carry a `_SUC
 (a half-translated corpus silently mixes languages); pass allow_untranslated=True
 (CLI: --allow-untranslated) to fall back to the original text with a warning.
 
+Tiers: `tier=0|1` (works only, CLI --tier) restricts the read to `work.link_tier = tier` (0 = project-linked,
+1 = org-only), and the NLLB gate then only needs NLLB to be complete for that tier (`_SUCCESS.tier<T>`).
+
 Ordering is not guaranteed (no ORDER BY on 50M rows); resume with `exclude_ids_sql`
 (SideOutput.done_ids_sql()) instead of offsets.
 """
@@ -73,14 +76,23 @@ def field_sql(entity: Entity, field: str, alias: str = "e") -> str:
     return template.format(a=alias)
 
 
+def tier_sql(entity: Entity, tier: Optional[int], alias: str = "e") -> Optional[str]:
+    """Predicate restricting works to one link tier; None for no restriction."""
+    if tier is None:
+        return None
+    if entity != "work":
+        raise ValueError(f"tier only applies to works, not {entity}")
+    return f"{alias}.link_tier = {int(tier)}"
+
+
 def nllb_outputs(enrichment_dir: Union[str, Path], entity: Entity) -> List[SideOutput]:
     return [SideOutput(enrichment_dir, "nllb", entity), SideOutput(enrichment_dir, "nllb/seen", entity)]
 
 
-def _use_nllb(enrichment_dir, entity: Entity, with_nllb: bool, allow_untranslated: bool) -> bool:
+def _use_nllb(enrichment_dir, entity: Entity, with_nllb: bool, allow_untranslated: bool, tier: Optional[int] = None) -> bool:
     if not with_nllb:
         return False
-    missing = [o for o in nllb_outputs(enrichment_dir, entity) if not o.is_complete()]
+    missing = [o for o in nllb_outputs(enrichment_dir, entity) if not o.is_complete(tier)]
     if not missing:
         return True
     if allow_untranslated:
@@ -112,6 +124,7 @@ def text_sql(
     shard: Shard = Shard(),
     exclude_ids_sql: Optional[str] = None,
     limit: Optional[int] = None,
+    tier: Optional[int] = None,
 ) -> str:
     """SQL producing (id, full_text) for every row of `entity` that has text: the space-joined
     `fields`, each `COALESCE(nllb.text_en, original)` when with_nllb.
@@ -119,12 +132,13 @@ def text_sql(
     shard              only ids with id % N = I
     exclude_ids_sql    a `SELECT id ...` of already-done ids (resume): anti-joined away
     limit              plain LIMIT (no offset, no order)
+    tier               works only: `link_tier = tier` (NLLB must be complete for that tier)
     """
     if not fields:
         raise ValueError("fields must not be empty")
     enrichment_dir = enrichment_dir if enrichment_dir is not None else _default_enrichment_dir()
     originals = {f: field_sql(entity, f) for f in fields}  # also validates the names
-    translated = _use_nllb(enrichment_dir, entity, with_nllb, allow_untranslated)
+    translated = _use_nllb(enrichment_dir, entity, with_nllb, allow_untranslated, tier)
 
     cte = ""
     join = ""
@@ -139,6 +153,8 @@ def text_sql(
         parts = [originals[f] for f in fields]
 
     where = [f"({_ROW_FILTER[entity]})"]
+    if tier_sql(entity, tier):
+        where.append(tier_sql(entity, tier))
     if shard.sql("e.id"):
         where.append(shard.sql("e.id"))
     if exclude_ids_sql:
@@ -174,6 +190,7 @@ def text_batches(
     shard: Shard = Shard(),
     exclude_ids_sql: Optional[str] = None,
     limit: Optional[int] = None,
+    tier: Optional[int] = None,
 ) -> Iterator[pa.RecordBatch]:
     """Streams (id, full_text) as Arrow record batches over one cursor: no OFFSET, no fetchall().
     The connection stays usable meanwhile (a private cursor is used)."""
@@ -186,6 +203,7 @@ def text_batches(
         shard=shard,
         exclude_ids_sql=exclude_ids_sql,
         limit=limit,
+        tier=tier,
     )
     cursor = con.cursor()
     try:

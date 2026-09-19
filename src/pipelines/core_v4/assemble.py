@@ -21,6 +21,17 @@ What is applied (column contract and defaults: READ_ASSEMBLE.md):
 Every side output without a `_SUCCESS` blocks assembly unless named in --skip; a skipped output is not read at
 all and its columns keep their defaults, so runs without the GPU steps produce the same schema.
 
+Staging fingerprint: every `_SUCCESS` records which staging (id set) the enrichment ran against (enrichment/fingerprint.py).
+A side output computed against a different staging (a rebuild with another --limit / --work-cap / dump) blocks assembly
+with a message naming it, unless it is listed in --allow-stale. --allow-stale nllb keeps the cached translations: rows whose
+id is still in staging get them, the others are simply not translated (the translation is not recomputed, so a text that
+changed under the same id keeps its old translation).
+
+Tiers: `--entity work --tier 0` builds a works file from the project-linked works only (work.link_tier = 0), from the
+tier-0 side outputs (`_SUCCESS.tier0`), long before tier 1 is enriched; rows of tier 1 are absent (and so are their
+relations). Without --tier the file holds every work and needs the complete (`_SUCCESS`) side outputs. `link_tier`
+passes through to the gold work table like every staging column.
+
 Memory: one CTAS/INSERT per table with LEFT JOINs to read_parquet; the work table (and its relation_topic)
 is built in id-hash shards (--shards, default 16 for work) so a hash table only ever holds 1/N of the ids.
 DuckDB gets a memory_limit, thread count and a spill directory; nothing large goes through Python.
@@ -28,6 +39,7 @@ DuckDB gets a memory_limit, thread count and a spill directory; nothing large go
 Usage:
     uv run python -m pipelines.core_v4.assemble --entity project
     uv run python -m pipelines.core_v4.assemble --entity work --mem-mb 240000 --threads 16
+    uv run python -m pipelines.core_v4.assemble --entity work --tier 0        # project-linked works only (path_duck_works_linked)
     uv run python -m pipelines.core_v4.assemble --entity project --variant limit --skip nllb,dch,topics
 """
 
@@ -47,6 +59,7 @@ from common.config.pipelines import get_pipeline_paths
 from common.log.logger import setup_logging
 from enrichment.topic_modelling.schema import CREATE_TOPIC_SQL
 from pipelines.core_v3.resources import DUCKDB_MEM_HEADROOM_MB, add_resource_args
+from pipelines.core_v4.enrichment import fingerprint
 from pipelines.core_v4.enrichment.cli import resolve
 from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
 
@@ -93,20 +106,72 @@ def _needed(entity: str) -> List[tuple]:
     return needed
 
 
-def check_complete(enrichment_dir, entity: str, skip: Iterable[str] = ()) -> None:
-    """Raises AssembleError listing every side output this file needs that has no `_SUCCESS` and is not skipped."""
+def _needed_outputs(entity: str, skip: Iterable[str]):
+    """(enrichment name, side output name, the entity dir it lives in) for every side output the file reads."""
     skip = set(skip)
-    missing = []
     for name, out_entity in _needed(entity):
         if name in skip:
             continue
-        names = [name, "nllb/seen"] if name == "nllb" else [name]  # nllb/seen gates NLLB completeness too
-        missing += [str(o.dir) for o in (SideOutput(enrichment_dir, n, out_entity) for n in names) if not o.is_complete()]
+        for n in [name, "nllb/seen"] if name == "nllb" else [name]:  # nllb/seen gates NLLB completeness too
+            yield name, n, out_entity
+
+
+def check_complete(enrichment_dir, entity: str, skip: Iterable[str] = (), tier: Optional[int] = None) -> None:
+    """Raises AssembleError listing every side output this file needs that has no `_SUCCESS` (for `tier`: its tier
+    marker is enough) and is not skipped."""
+    missing = [
+        str(o.dir)
+        for _, n, out_entity in _needed_outputs(entity, skip)
+        if not (o := SideOutput(enrichment_dir, n, out_entity)).is_complete(tier)
+    ]
     if missing:
         raise AssembleError(
-            "side outputs without _SUCCESS block assembly (finish them, or pass --skip <name> to build without them): "
+            "side outputs without _SUCCESS"
+            + (f" for tier {tier}" if tier is not None else "")
+            + " block assembly (finish them, or pass --skip <name> to build without them): "
             + ", ".join(missing)
         )
+
+
+def check_current(
+    con: duckdb.DuckDBPyConnection,
+    enrichment_dir,
+    entity: str,
+    skip: Iterable[str] = (),
+    allow_stale: Iterable[str] = (),
+    tier: Optional[int] = None,
+    catalog: str = "stg",
+) -> List[str]:
+    """Raises AssembleError for every needed side output whose `_SUCCESS` fingerprint is not the current staging's
+    (a stale output, e.g. computed before a staging rebuild), except those named in `allow_stale`. Returns the
+    names that were let through although stale. Call after check_complete."""
+    allow_stale = set(allow_stale)
+    expected: Dict[tuple, dict] = {}
+    stale, allowed = [], []
+    for name, n, out_entity in _needed_outputs(entity, skip):
+        out = SideOutput(enrichment_dir, n, out_entity)
+        done = out.completion(tier if out_entity == "work" else None)
+        # a tier marker covers that tier only, `_SUCCESS` everything: compare against the matching staging scope
+        key = (out_entity, done.tier if done.tier is not None else None)
+        if key not in expected:
+            expected[key] = fingerprint.staging_stamp(con, out_entity, key[1], catalog)
+        if fingerprint.same(done.stamp, expected[key]):
+            continue
+        detail = f"{out.dir}: computed against {fingerprint.describe(done.stamp)}, staging has {fingerprint.describe(expected[key])}"
+        if name in allow_stale:
+            allowed.append(name)
+            logging.warning(f"STALE side output used because of --allow-stale {name}: {detail}")
+        else:
+            stale.append(detail)
+    if stale:
+        raise AssembleError(
+            "side outputs computed against a different staging (the staging was rebuilt after they ran): "
+            + "; ".join(stale)
+            + ". Rerun those enrichments, or pass --allow-stale <name> to use them anyway (rows are matched by id: ids that are no "
+            "longer in staging are ignored, new ids get no result; for nllb that reuses the cached translations, "
+            "which are wrong for a row whose text changed under the same id)."
+        )
+    return sorted(set(allowed))
 
 
 class _Sides:
@@ -153,7 +218,7 @@ def entity_select_sql(entity: str, sides: _Sides, shard: Shard, staging_cols: Se
         "COALESCE(m.minority_qid, []::VARCHAR[]) AS minority_qid, "
         "COALESCE(p.pillars, 0)::UTINYINT AS pillars, "
         "t.theme::VARCHAR AS theme "
-        f"FROM stg.{entity} e "
+        f"FROM src_{entity} e "
         "LEFT JOIN nllb n ON n.id = e.id "
         "LEFT JOIN dch d ON d.id = e.id "
         "LEFT JOIN mino m ON m.id = e.id "
@@ -206,11 +271,23 @@ def build_organization(con: duckdb.DuckDBPyConnection, sides: _Sides) -> None:
 
 
 # ---- relation ------------------------------------------------------------------------------
-def build_relation(con: duckdb.DuckDBPyConnection, entity: str) -> None:
+def define_sources(con: duckdb.DuckDBPyConnection, entity: str, tier: Optional[int]) -> None:
+    """Temp view `src_<entity>`: the staging rows this file is built from (works of one link tier with --tier)."""
+    where = f" WHERE link_tier = {int(tier)}" if tier is not None else ""
+    con.execute(f"CREATE TEMP VIEW src_{entity} AS SELECT * FROM stg.{entity}{where}")
+
+
+def build_relation(con: duckdb.DuckDBPyConnection, entity: str, tier: Optional[int] = None) -> None:
     """Straight streaming copy. A relation row belongs to the works file when a work/product is on either side
-    (product hasAuthorInstitution organization, project produces product), else to the projects file."""
+    (product hasAuthorInstitution organization, project produces product), else to the projects file.
+    With a tier, only rows whose work endpoint is in the tier's works (no relation may point at an absent work)."""
     is_work = f"(COALESCE(sourceType IN {_WORK_TYPES}, false) OR COALESCE(targetType IN {_WORK_TYPES}, false))"
     where = is_work if entity == "work" else f"NOT {is_work}"
+    if tier is not None:
+        where += (
+            f" AND ((COALESCE(sourceType IN {_WORK_TYPES}, false) AND source IN (SELECT id FROM src_work))"
+            f" OR (COALESCE(targetType IN {_WORK_TYPES}, false) AND target IN (SELECT id FROM src_work)))"
+        )
     con.execute(f"CREATE TABLE relation AS SELECT * FROM stg.relation WHERE {where}")
 
 
@@ -249,7 +326,7 @@ def build_relation_topic(con: duckdb.DuckDBPyConnection, entity: str, sides: _Si
         con.execute(
             f"INSERT INTO relation_topic SELECT '{entity}', t.id, t.topic_id, t.score::FLOAT, TIMESTAMP '{created_at}' "
             f"FROM (SELECT DISTINCT ON (id, topic_id) id, topic_id, score FROM ({topics})) t "
-            f"SEMI JOIN stg.{entity} e ON e.id = t.id"
+            f"SEMI JOIN src_{entity} e ON e.id = t.id"
         )
 
 
@@ -321,19 +398,26 @@ def assemble(
     shards: Optional[int] = None,
     oa_topics_db: Optional[Union[str, Path]] = None,
     tmp_dir: Optional[Union[str, Path]] = None,
+    tier: Optional[int] = None,
+    allow_stale: Iterable[str] = (),
 ) -> Dict[str, Dict[str, int]]:
-    """Builds the gold duckdb for `entity` ('project' or 'work') at `out`. Returns the logged stats."""
+    """Builds the gold duckdb for `entity` ('project' or 'work') at `out`. Returns the logged stats.
+    `tier=0` (works only) builds it from the project-linked works only; `allow_stale` names side outputs whose
+    staging fingerprint may differ from the current staging (see the module docstring)."""
     if entity not in DEFAULT_SHARDS:
         raise AssembleError(f"entity must be project or work, not {entity!r}")
+    if tier is not None and (entity != "work" or tier != 0):
+        raise AssembleError("--tier 0 is the only tier subset assemble builds, and only for --entity work")
     skip = set(skip)
-    unknown = skip - set(SKIPPABLE)
+    allow_stale = set(allow_stale)
+    unknown = (skip | allow_stale) - set(SKIPPABLE)
     if unknown:
-        raise AssembleError(f"unknown --skip name(s) {sorted(unknown)}; known: {SKIPPABLE}")
+        raise AssembleError(f"unknown --skip / --allow-stale name(s) {sorted(unknown)}; known: {SKIPPABLE}")
     shards = shards or DEFAULT_SHARDS[entity]
     staging_db, out = Path(staging_db), Path(out)
     if not staging_db.exists():
         raise AssembleError(f"staging duckdb not found: {staging_db}")
-    check_complete(enrichment_dir, entity, skip)
+    check_complete(enrichment_dir, entity, skip, tier)
     if entity == "project":
         if oa_topics_db is None:
             from common.config.dumps import get_dumps_paths
@@ -361,6 +445,10 @@ def assemble(
         con = duckdb.connect(str(tmp))
         _apply_limits(con, mem_mb, threads, spill)
         con.execute(f"ATTACH {_sql_str(staging_db)} AS stg (READ_ONLY)")
+        if tier is not None and "link_tier" not in {r[0] for r in con.execute("DESCRIBE stg.work").fetchall()}:
+            raise AssembleError("staging has no work.link_tier column: rebuild it with the current transformation to use --tier")
+        check_current(con, enrichment_dir, entity, skip, allow_stale, tier)
+        define_sources(con, entity, tier)
 
         if entity == "project":
             con.execute(f"ATTACH {_sql_str(oa_topics_db)} AS oa (READ_ONLY)")
@@ -371,11 +459,11 @@ def assemble(
                 raise AssembleError(f"organization: {stats['organization']['rows']:,} rows assembled but staging has {org_rows:,}")
         build_entity_table(con, entity, sides, shards)
         stats[entity] = log_entity_stats(con, entity)
-        staging_rows = con.execute(f"SELECT count(*) FROM stg.{entity}").fetchone()[0]
+        staging_rows = con.execute(f"SELECT count(*) FROM src_{entity}").fetchone()[0]
         if stats[entity]["rows"] != staging_rows:  # a duplicated side-output key would show up here
             raise AssembleError(f"{entity}: {stats[entity]['rows']:,} rows assembled but staging has {staging_rows:,}")
 
-        build_relation(con, entity)
+        build_relation(con, entity, tier)
         if entity == "project":
             build_topic(con, created_at)
         build_relation_topic(con, entity, sides, shards, created_at)
@@ -417,6 +505,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--staging-db", default=None, help="staging duckdb, read-only (default: config path_duck_staging)")
     parser.add_argument("--enrichment-dir", default=None, help="side-output root (default: config path_enrichment_dir)")
     parser.add_argument("--out", default=None, help="gold duckdb to write (default: config path_duck_projects / path_duck_works)")
+    parser.add_argument("--tier", choices=["0", "all"], default="all", help="work only: 0 = build from the project-linked works only (needs the tier-0 side outputs)")
+    parser.add_argument("--allow-stale", default="", help="comma-separated side outputs to use even though they were computed against a different staging (e.g. nllb: reuse cached translations)")
     parser.add_argument("--skip", default="", help=f"comma-separated side outputs to leave out (defaults stay): {', '.join(SKIPPABLE)}")
     parser.add_argument("--shards", type=int, default=None, help=f"id-hash shards per big table (default: {DEFAULT_SHARDS})")
     parser.add_argument("--oa-topics-db", default=None, help="oa_topics_raw duckdb (default: config oa_topics path_duck)")
@@ -432,13 +522,15 @@ def resolve_paths(args: argparse.Namespace) -> tuple:
         r = resolve(
             argparse.Namespace(
                 db=args.staging_db, variant=args.variant, enrichment_dir=args.enrichment_dir, shard="0/1",
-                limit=None, test=None, entity=args.entity,
+                limit=None, test=None, entity=args.entity, tier="all",
             )
         )
         staging_db, enrichment_dir = r.db, r.enrichment_dir
         if not out:
             block = "core_v4_limit" if args.variant == "limit" else "core_v4"
-            key = f"path_duck_{args.entity}s" + ("_limit" if args.variant == "limit" else "")
+            key = f"path_duck_{args.entity}s" + ("_linked" if getattr(args, "tier", "all") == "0" else "") + (
+                "_limit" if args.variant == "limit" else ""
+            )
             out = get_pipeline_paths()[block].get(key)
             if not out:
                 raise AssembleError(f"no --out given and config/pipelines.yaml {block} has no {key}")
@@ -455,6 +547,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             skip=[s.strip() for s in args.skip.split(",") if s.strip()],
             mem_mb=args.mem_mb, threads=args.threads, shards=args.shards,
             oa_topics_db=args.oa_topics_db, tmp_dir=args.tmp_dir,
+            tier=None if args.tier == "all" else int(args.tier),
+            allow_stale=[s.strip() for s in args.allow_stale.split(",") if s.strip()],
         )
     except AssembleError as e:
         raise SystemExit(f"assemble: {e}") from None

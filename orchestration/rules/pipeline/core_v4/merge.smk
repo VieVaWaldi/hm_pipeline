@@ -1,7 +1,7 @@
 """core_v4 merge: OpenAire staging v4 + ROR + Cordis -> core_v4_staging.duckdb.
 
 First stage of every core_v4 target (see the Snakefile: `core_v4_projects`,
-`core_v4_works`, `core_v4`). enrichment.smk and assemble.smk chain on from it and
+`core_v4_works_linked`, `core_v4_works`, `core_v4`). enrichment.smk and assemble.smk chain on from it and
 import the constants defined here.
 
 Variants. `--config limit=N` switches the *whole* core_v4 DAG to the dev sample:
@@ -19,6 +19,7 @@ Other config keys (all optional), documented in orchestration/README.md:
     geolocation_permanent=true  send permanent=true to Mapbox (paid); default is temporary
     shards=N                    override every enrichment's shard count
     shards_<name>=N             override one enrichment's shard count (e.g. shards_nllb=8)
+    shards_<name>_t0=N / _t1=N  the same for the tier-0 / tier-1 works unit only (e.g. shards_nllb_t1=24)
 """
 
 from common.config.pipelines import get_pipeline_paths
@@ -43,6 +44,7 @@ def _core_v4_paths():
         "staging": cfg[f"path_duck_staging{sfx}"],
         "projects": duck(f"path_duck_projects{sfx}", f"{CORE_V4_PIPELINE}_projects"),
         "works": duck(f"path_duck_works{sfx}", f"{CORE_V4_PIPELINE}_works"),
+        "works_linked": duck(f"path_duck_works_linked{sfx}", f"{CORE_V4_PIPELINE}_works_linked"),
         "enrichment_dir": cfg[f"path_enrichment_dir{sfx}"].rstrip("/"),
     }
 

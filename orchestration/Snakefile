@@ -147,19 +147,26 @@ rule core_v4_sources:
         f"reports/sources/dumps/{REPORT_NAME_OPENAIRE_DUMP}.md",
 
 
-# core_v4, end to end, in two chains so the project results come first (see
-# rules/pipeline/core_v4/*.smk and orchestration/README.md). Neither is part of `all`.
-#   core_v4_projects  staging -> enrichments for entity project + organization -> assemble --entity project
-#                     -> reports (staging, projects)
-#   core_v4_works     same for entity work -> assemble --entity work -> reports (staging, works).
-#                     Its enrichments wait for the projects duckdb (ordering only), so it always
-#                     runs after the projects chain, and pulls it in if it is missing.
-#   core_v4           both.
+# core_v4, end to end, in three chains so the results come in order of importance (see
+# rules/pipeline/core_v4/*.smk and orchestration/README.md). None is part of `all`.
+#   core_v4_projects      staging -> enrichments for entity project + organization -> assemble --entity project
+#                         -> reports (staging, projects)
+#   core_v4_works_linked  the project-linked works (tier 0, ~5M): enrichments --tier 0 -> assemble --tier 0
+#                         -> reports (staging, works_linked). Its enrichments wait for the projects duckdb
+#                         (ordering only), so it runs after the projects chain and pulls it in if missing.
+#   core_v4_works         everything: core_v4_works_linked, then the org-only works (tier 1, the enrichments wait
+#                         for their own tier 0) -> assemble --entity work -> reports (staging, works).
+#   core_v4               all of it.
 # `--config limit=N` runs the whole thing on the dev sample into separate *_limit files.
 #   ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v4_projects
 rule core_v4_projects:
     input:
         CORE_V4_PROJECTS_TARGETS,
+
+
+rule core_v4_works_linked:
+    input:
+        CORE_V4_WORKS_LINKED_TARGETS,
 
 
 rule core_v4_works:

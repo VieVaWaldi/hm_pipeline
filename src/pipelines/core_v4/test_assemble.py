@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import duckdb
 import pyarrow as pa
 import pytest
@@ -5,6 +7,7 @@ import pytest
 from pipelines.core_v4 import assemble as asm
 from pipelines.core_v4.assemble import AssembleError, assemble
 from pipelines.core_v4.enrichment.fixtures import make_staging_fixture, project_id, work_id
+from pipelines.core_v4.enrichment.fingerprint import staging_stamp
 from pipelines.core_v4.enrichment.side_outputs import SCHEMAS, SideOutput
 
 MEM = 4000  # small dev budget: memory_limit = max(mem - headroom, mem / 2)
@@ -14,15 +17,26 @@ def org_id(i: int) -> int:
     return duckdb.sql(f"SELECT hash('o{i}')").fetchone()[0]
 
 
-def side(root, name, entity, rows, complete=True):
-    """Writes a fake side output: rows are dicts of the schema's columns."""
-    out = SideOutput(root, name, entity)
+def stamp_of(staging_path, entity, tier=None):
+    con = duckdb.connect(str(staging_path), read_only=True)
+    try:
+        return staging_stamp(con, entity, tier)
+    finally:
+        con.close()
+
+
+def side(root, name, entity, rows, complete=True, tier=None, stamp="staging"):
+    """Writes a fake side output: rows are dicts of the schema's columns. Its `_SUCCESS` carries the fingerprint of the
+    staging next to the side-output root (tmp_path/staging.duckdb), like a real enrichment run; stamp=None: legacy marker."""
+    out = SideOutput(root, name, entity, tier=tier)
     out.begin()
     if rows:
         cols = {f.name: pa.array([r.get(f.name) for r in rows], f.type) for f in SCHEMAS[name]}
         out.write(pa.table(cols))
+    if stamp == "staging":
+        stamp = stamp_of(Path(root).parent / "staging.duckdb", entity, tier)
     if complete:
-        out.finish()
+        out.finish(stamp)
     return out
 
 
@@ -352,3 +366,154 @@ def test_cli_missing_success_exits_with_message(tmp_path, staging, oa_topics):
             "--out", str(tmp_path / "o.duckdb"), "--oa-topics-db", str(oa_topics), "--mem-mb", str(MEM),
         ])
     assert not (tmp_path / "o.duckdb").exists()
+
+
+# ---- tiers ---------------------------------------------------------------------------------
+WORK_SIDES = [n for n in asm.ENTITY_ENRICHMENTS] + ["nllb/seen"]
+
+
+def write_work_tier(root, tier, w_ids, complete=True):
+    """Fake work side outputs of one tier: a dch row for every id, an nllb title for the first one."""
+    for name in WORK_SIDES:
+        rows = []
+        if name == "dch":
+            rows = [{"id": i, "is_ch": True, "pred": 0.5} for i in w_ids]
+        elif name == "nllb" and w_ids:
+            rows = [{"id": w_ids[0], "field": "title", "text_en": f"EN {w_ids[0]}", "src_lang": "deu_Latn"}]
+        elif name == "nllb/seen" and w_ids:
+            rows = [{"id": i, "field": "title", "src_lang": "deu_Latn", "translated": True} for i in w_ids]
+        elif name == "topics" and w_ids:
+            rows = [{"id": w_ids[0], "topic_id": 10001, "score": 0.5}]
+        side(root, name, "work", rows, complete=complete, tier=tier)
+
+
+@pytest.fixture
+def tiered(tmp_path, staging, oa_topics):
+    """Staging with a tier-1 work that has its own relation; no work side outputs at all yet."""
+    con = duckdb.connect(str(staging))
+    con.execute("INSERT INTO relation VALUES (?, 'product', ?, 'organization', {'name': 'hasAuthorInstitution', 'type': 'x'}, NULL, NULL, NULL, NULL)", [work_id(3), org_id(2)])
+    con.close()
+    return tmp_path / "enrich"
+
+
+def test_link_tier_passes_through_to_the_work_table(tmp_path, staging, enrich, oa_topics):
+    out = tmp_path / "works.duckdb"
+    run("work", staging, enrich, oa_topics, out)
+    assert dict(rows(out, "SELECT openaireId, link_tier FROM work")) == {"w1": 0, "w2": 0, "w3": 1, "w4": 1}
+    types = dict(rows(out, "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'work'"))
+    assert types["link_tier"] == "SMALLINT"
+
+
+def test_tier0_assemble_from_tier0_side_outputs_only(tmp_path, staging, tiered, oa_topics):
+    write_work_tier(tiered, 0, [work_id(1), work_id(2)])
+    out = tmp_path / "linked.duckdb"
+    stats = run("work", staging, tiered, oa_topics, out, tier=0)
+    assert stats["work"]["rows"] == 2
+    assert dict(rows(out, "SELECT openaireId, link_tier FROM work")) == {"w1": 0, "w2": 0}
+    assert rows(out, "SELECT title FROM work WHERE openaireId = 'w1'") == [(f"EN {work_id(1)}",)]  # tier-0 nllb applied
+    # the relation of the tier-1 work is absent, the tier-0 ones are there
+    assert sorted(rows(out, "SELECT sourceType, targetType FROM relation")) == [("product", "organization")] * 2 + [("project", "product")]
+    assert rows(out, "SELECT count(*) FROM relation_topic") == [(1,)]
+    # the full file is not possible yet: only the tier-0 markers exist
+    with pytest.raises(AssembleError, match="without _SUCCESS"):
+        run("work", staging, tiered, oa_topics, tmp_path / "full.duckdb")
+
+
+def test_full_assemble_after_both_tiers_and_tier1_run_keeps_tier0_usable(tmp_path, staging, tiered, oa_topics):
+    write_work_tier(tiered, 0, [work_id(1), work_id(2)])
+    # a tier-1 run in progress (begin() ran, no finish yet) does not invalidate the tier-0 markers
+    for name in WORK_SIDES:
+        SideOutput(tiered, name, "work", tier=1).begin()
+    run("work", staging, tiered, oa_topics, tmp_path / "linked.duckdb", tier=0)
+    write_work_tier(tiered, 1, [work_id(3), work_id(4)])
+    assert all(SideOutput(tiered, n, "work").is_complete() for n in WORK_SIDES)  # both tiers: _SUCCESS, with a combined stamp
+    full = tmp_path / "full.duckdb"
+    run("work", staging, tiered, oa_topics, full)
+    assert dict(rows(full, "SELECT openaireId, link_tier FROM work")) == {"w1": 0, "w2": 0, "w3": 1, "w4": 1}
+    assert rows(full, "SELECT count(*) FROM relation") == [(4,)]
+    assert rows(full, "SELECT count(*) FROM work WHERE is_ch") == [(4,)]
+    # tier 0 rows are the same in both files
+    q = "SELECT * FROM work WHERE link_tier = 0 ORDER BY id"
+    assert rows(tmp_path / "linked.duckdb", q) == rows(full, q)
+
+
+def test_tier_only_for_works_and_needs_the_column(tmp_path, staging, enrich, oa_topics):
+    with pytest.raises(AssembleError, match="only for --entity work"):
+        run("project", staging, enrich, oa_topics, tmp_path / "p.duckdb", tier=0)
+    con = duckdb.connect(str(staging))
+    con.execute("ALTER TABLE work DROP COLUMN link_tier")
+    con.close()
+    with pytest.raises(AssembleError, match="link_tier"):
+        run("work", staging, enrich, oa_topics, tmp_path / "w.duckdb", tier=0)
+
+
+def test_cli_tier0_default_out_key(tmp_path, staging, tiered, oa_topics):
+    write_work_tier(tiered, 0, [work_id(1), work_id(2)])
+    out = tmp_path / "cli_linked.duckdb"
+    asm.main(["--entity", "work", "--tier", "0", "--staging-db", str(staging), "--enrichment-dir", str(tiered),
+              "--out", str(out), "--mem-mb", str(MEM), "--threads", "2"])
+    assert rows(out, "SELECT count(*) FROM work") == [(2,)]
+
+
+# ---- staging fingerprint -------------------------------------------------------------------
+def rebuild_staging(staging):
+    """A staging rebuild that dropped a project and a work (like a different --limit)."""
+    con = duckdb.connect(str(staging))
+    con.execute("DELETE FROM project WHERE openaireId = 'p3'")
+    con.execute("DELETE FROM work WHERE openaireId = 'w4'")
+    con.close()
+
+
+def test_stale_side_outputs_block_assembly_with_a_clear_message(tmp_path, staging, enrich, oa_topics):
+    rebuild_staging(staging)
+    out = tmp_path / "projects.duckdb"
+    with pytest.raises(AssembleError, match=r"different staging.*dch/project.*computed against 4 ids, staging has 3 ids"):
+        run("project", staging, enrich, oa_topics, out)
+    assert not out.exists()
+    with pytest.raises(AssembleError, match="--allow-stale"):
+        run("work", staging, enrich, oa_topics, tmp_path / "works.duckdb")
+
+
+def test_allow_stale_lets_named_outputs_through(tmp_path, staging, enrich, oa_topics, caplog):
+    rebuild_staging(staging)
+    out = tmp_path / "projects.duckdb"
+    every = sorted(asm.SKIPPABLE)
+    with pytest.raises(AssembleError, match="different staging"):
+        run("project", staging, enrich, oa_topics, out, allow_stale=[n for n in every if n != "dch"])  # one is still stale
+    with caplog.at_level("WARNING"):
+        run("project", staging, enrich, oa_topics, out, allow_stale=every)
+    assert "STALE side output used" in caplog.text
+    # orphan rows (side outputs of the vanished p3 / of project 99) are dropped by the join, the rest is applied
+    assert rows(out, "SELECT count(*) FROM project") == [(3,)]
+    assert rows(out, "SELECT title FROM project WHERE openaireId = 'p1'") == [("Digital Heritage Platform",)]
+    with pytest.raises(AssembleError, match="unknown --skip / --allow-stale"):
+        run("project", staging, enrich, oa_topics, out, allow_stale=["nope"])
+
+
+def test_allow_stale_nllb_applies_cached_translations_only_to_ids_that_still_exist(tmp_path, staging, enrich, oa_topics):
+    rebuild_staging(staging)  # p3 had a cached translation ("Title only"); it is gone from staging
+    out = tmp_path / "projects.duckdb"
+    others = [n for n in asm.SKIPPABLE if n != "nllb"]
+    run("project", staging, enrich, oa_topics, out, skip=others, allow_stale=["nllb"])
+    assert dict(rows(out, "SELECT openaireId, is_translated FROM project")) == {"p1": True, "p2": False, "p4": False}
+    assert rows(out, "SELECT title FROM project WHERE openaireId = 'p1'") == [("Digital Heritage Platform",)]
+
+
+def test_legacy_success_without_fingerprint_is_stale(tmp_path, staging, enrich, oa_topics):
+    side(enrich, "dch", "project", [{"id": project_id(1), "is_ch": True, "pred": 0.9}], stamp=None)  # an older run: empty _SUCCESS
+    with pytest.raises(AssembleError, match=r"dch/project: computed against no fingerprint recorded"):
+        run("project", staging, enrich, oa_topics, tmp_path / "p.duckdb")
+    run("project", staging, enrich, oa_topics, tmp_path / "p.duckdb", allow_stale=["dch"])
+
+
+def test_tier0_outputs_stay_valid_when_only_tier1_changed(tmp_path, staging, tiered, oa_topics):
+    write_work_tier(tiered, 0, [work_id(1), work_id(2)])
+    con = duckdb.connect(str(staging))  # staging rebuilt with a different tier 1
+    con.execute("DELETE FROM work WHERE openaireId = 'w4'")
+    con.close()
+    run("work", staging, tiered, oa_topics, tmp_path / "linked.duckdb", tier=0)  # tier-0 stamp unchanged: fine
+    con = duckdb.connect(str(staging))
+    con.execute("DELETE FROM work WHERE openaireId = 'w2'")  # ... but a tier-0 change is stale
+    con.close()
+    with pytest.raises(AssembleError, match="different staging"):
+        run("work", staging, tiered, oa_topics, tmp_path / "linked.duckdb", tier=0)

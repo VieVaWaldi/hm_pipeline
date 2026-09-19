@@ -23,6 +23,7 @@ import pyarrow as pa
 from common.file_handling.path_utils import get_project_root_path
 from common.log.logger import setup_logging
 from pipelines.core_v4.enrichment.cli import add_common_args, resolve
+from pipelines.core_v4.enrichment.fingerprint import staging_stamp
 from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
 from pipelines.core_v4.enrichment.text_sources import Entity, open_staging, text_batches
 
@@ -48,17 +49,19 @@ def run(
     dry_run: bool = False,
     allow_untranslated: bool = False,
     chunk_rows: int = CHUNK_ROWS,
+    tier: Optional[int] = None,
 ) -> int:
     """Classifies every not-yet-done row of `entity` (this shard's). `classifier` is anything with
     enrich(list[str]) -> list[float]. Returns the number of rows classified in this call."""
-    out = SideOutput(enrichment_dir, "dch", entity, shard=shard)
+    stamp = staging_stamp(con, entity, tier)
+    out = SideOutput(enrichment_dir, "dch", entity, shard=shard, tier=tier)
     if not dry_run:
         out.begin()
     done_sql = None if dry_run else out.done_ids_sql()
     total, n_ch, t0 = 0, 0, time.time()
     for batch in text_batches(
         con, entity, DCH_FIELDS[entity], batch_size=chunk_rows, enrichment_dir=enrichment_dir,
-        allow_untranslated=allow_untranslated, shard=shard, exclude_ids_sql=done_sql, limit=limit,
+        allow_untranslated=allow_untranslated, shard=shard, exclude_ids_sql=done_sql, limit=limit, tier=tier,
     ):
         probs = classifier.enrich(batch.column("full_text").to_pylist())
         is_ch = [p >= THRESHOLD for p in probs]
@@ -71,7 +74,7 @@ def run(
         elapsed = max(time.time() - t0, 1e-9)
         logging.info(f"[{'TEST ' if dry_run else ''}{entity}] {total:,} rows  CH={n_ch:,}  ({total / elapsed:,.0f} seq/s)")
     if not dry_run and limit is None:
-        out.finish()  # a --limit run is partial: never mark it complete
+        out.finish(stamp)  # a --limit run is partial: never mark it complete
     return total
 
 
@@ -92,7 +95,7 @@ def main() -> None:
     try:
         for entity in r.entities:
             run(con, classifier, entity, r.enrichment_dir, shard=r.shard, limit=r.limit, dry_run=r.dry_run,
-                allow_untranslated=args.allow_untranslated, chunk_rows=args.chunk_rows)
+                allow_untranslated=args.allow_untranslated, chunk_rows=args.chunk_rows, tier=r.tier)
     finally:
         con.close()
 

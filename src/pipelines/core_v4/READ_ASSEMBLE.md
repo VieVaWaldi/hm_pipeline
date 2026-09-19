@@ -13,8 +13,9 @@ Serve ATTACHes both.
 |---|---|
 | projects (`path_duck_projects`, limit: `path_duck_projects_limit`) | `project`, `organization`, `relation` (rows without a work/product side, i.e. project hasParticipant organization), `topic`, `relation_topic` (type = 'project') |
 | works (`path_duck_works`, limit: `path_duck_works_limit`) | `work`, `relation` (rows where a `product`/`work` is source or target: product hasAuthorInstitution organization, project produces product), `relation_topic` (type = 'work') |
+| works, tier 0 (`path_duck_works_linked`, limit: `path_duck_works_linked_limit`), `--entity work --tier 0` | the same tables, only for the project-linked works (`work.link_tier = 0`): tier-1 works, their relations and their relation_topic rows are absent. A subset of the full works file, built as soon as the tier-0 enrichments are done |
 
-`topic` and `organization` exist only in the projects file; the works file refers to them through the attach.
+`topic` and `organization` exist only in the projects file; the works files refer to them through the attach.
 
 ## Run
 
@@ -22,12 +23,27 @@ Serve ATTACHes both.
 uv run python -m pipelines.core_v4.assemble --entity project [--variant full|limit] [--staging-db P] [--enrichment-dir P]
          [--out P] [--skip name1,name2] [--shards N] [--oa-topics-db P] [--tmp-dir P] [--mem-mb M] [--threads T]
 uv run python -m pipelines.core_v4.assemble --entity work --mem-mb 240000 --threads 16
+uv run python -m pipelines.core_v4.assemble --entity work --tier 0      # project-linked works only -> path_duck_works_linked
+         [--allow-stale name1,name2]
 ```
 
 - Paths default to the variant's config block (`core_v4` / `core_v4_limit`): `path_duck_staging`, `path_enrichment_dir`,
   `path_duck_projects` / `path_duck_works`; `--oa-topics-db` defaults to `dumps.yaml` `oa_topics.path_duck`.
 - The output is rebuilt from scratch every run: written to `<out>.tmp`, renamed at the end. A failure removes the tmp file and
   the spill directory and leaves any previous `<out>` untouched.
+- **Tiers.** `--tier 0` (works only; tier 1 alone is not built) reads the tier-0 markers (`_SUCCESS.tier0`, or a full `_SUCCESS`),
+  builds `work` from `stg.work WHERE link_tier = 0` and keeps only the relation rows whose work endpoint is in it, so nothing
+  points at an absent work; `relation_topic` is limited the same way. Without `--tier` every work is built and the full `_SUCCESS`
+  (both tiers complete) is required. `link_tier` is a staging column and passes through to the gold work table (SMALLINT, after
+  `container`, before the new enrichment columns). The default `--out` of a tier-0 run is `path_duck_works_linked`.
+- **Stale side outputs.** Each `_SUCCESS` holds a fingerprint (row count, sum and xor of the ids; `enrichment/fingerprint.py`) of
+  the staging the enrichment ran against. Assemble computes the current one (per tier for the tier markers, so tier-0 outputs
+  stay valid when only tier 1 changed) and stops with a message listing every side output that differs, or that has an empty
+  marker from before fingerprints existed, unless it is named in `--allow-stale` (same names as `--skip`). Allowed stale
+  outputs are still applied by id, with a WARNING: ids no longer in staging are ignored, new ids get no result. `--allow-stale
+  nllb` is the one to know: it reuses the expensive cached translations of a staging that was rebuilt (e.g. another `--limit`
+  or `--work-cap`) for every row whose id is still there; the risk is a row whose text changed under the same id keeping its
+  old translation. Not covered by the fingerprint: same ids, changed text.
 - Side outputs whose dir has no `_SUCCESS` (nllb also needs `nllb/seen`) stop the run and are listed in the error. `--skip nllb,dch`
   (names: nllb, topics, theme, dch, minorities, pillars, geolocation, regions) builds without them: a skipped output is not read at
   all, even if parts exist, and its columns keep their defaults, so the schema is identical to a full run.
@@ -46,6 +62,7 @@ Staging columns keep their name and position; the columns below are replaced in 
 | table | column | type | source / rule | default when missing or skipped |
 |---|---|---|---|---|
 | project | `title`, `summary` | as staging | `COALESCE(nllb.text_en, original)` per field | original |
+| work | `link_tier` | SMALLINT | staging (0 = project-linked, 1 = org-only), passed through | |
 | work | `title` | as staging | `COALESCE(nllb.text_en, original)` | original |
 | work | `descriptions` | `VARCHAR[]` | element 1 replaced by nllb field `description`; elements 2.. untouched | original |
 | project, work | `is_translated` | BOOLEAN | id has any field (also acronym, keywords, subjects, container, ...) in the nllb side output | false |

@@ -29,6 +29,7 @@ import yaml
 
 from common.log.logger import setup_logging
 from pipelines.core_v4.enrichment.cli import add_common_args, resolve
+from pipelines.core_v4.enrichment.fingerprint import staging_stamp
 from pipelines.core_v4.enrichment.side_outputs import PILLARS, Shard, SideOutput
 from pipelines.core_v4.enrichment.text_sources import open_staging, text_sql
 
@@ -78,8 +79,10 @@ def run_entity(
     dry_run: bool = False,
     allow_untranslated: bool = False,
     batch_size: int = 100_000,
+    tier: Optional[int] = None,
 ) -> Dict[str, object]:
     cfg = cfg or load_config()
+    stamp = staging_stamp(con, entity, tier)
     query = pillars_sql(
         entity,
         cfg,
@@ -90,9 +93,10 @@ def run_entity(
             allow_untranslated=allow_untranslated,
             shard=shard,
             limit=limit,
+            tier=tier,
         ),
     )
-    out = SideOutput(enrichment_dir, "pillars", entity, shard=shard)
+    out = SideOutput(enrichment_dir, "pillars", entity, shard=shard, tier=tier)
     if not dry_run:
         out.begin(reset=True)
 
@@ -120,9 +124,9 @@ def run_entity(
         logging.warning(f"[{entity}] FLAG: pillar '{name}' matches {rates[name]:.1%} of rows (> {cfg['flag_above']:.0%}); review the stems in pillars.yaml")
     result = {"rows": total, "rows_any": any_pillar, "counts": dict(zip(PILLARS, per_pillar)), "rates": rates, "flagged": flagged}
     if not dry_run:
-        (out.dir / f"_match_rates-{shard.index}.json").write_text(json.dumps(result, indent=1))
+        (out.dir / f"_match_rates-{out.tag}{shard.index}.json").write_text(json.dumps(result, indent=1))
         if limit is None:
-            out.finish()
+            out.finish(stamp)
     return result
 
 
@@ -144,6 +148,7 @@ def main() -> None:
             dry_run=cfg.dry_run,
             allow_untranslated=args.allow_untranslated,
             batch_size=args.batch_size,
+            tier=cfg.tier,
         )
 
 

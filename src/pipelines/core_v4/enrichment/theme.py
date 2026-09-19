@@ -4,7 +4,8 @@ and the OpenAlex topic taxonomy. Definitions and --min-score default live in the
     <enrichment_dir>/theme/<entity>/part-<shard>-<n>.parquet     (id, theme)      sparse: matched rows only
 
 Sparse and cheap, so it is recomputed wholesale on every run (no resume). Needs topics/<entity> to be
-complete unless --allow-incomplete.
+complete (for the tier, with --tier) unless --allow-incomplete. With --tier only the works of that link tier
+are themed (staging is attached read-only to filter the topic rows and to record the staging fingerprint).
 
 Usage:
     uv run python -m pipelines.core_v4.enrichment.theme [--min-score 0.15]
@@ -23,6 +24,7 @@ import yaml
 from common.config.dumps import get_dumps_paths
 from common.log.logger import setup_logging
 from pipelines.core_v4.enrichment.cli import add_common_args, resolve
+from pipelines.core_v4.enrichment.fingerprint import staging_stamp
 from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
 
 THEMES_FILE = Path(__file__).with_name("themes.yaml")
@@ -72,11 +74,19 @@ def theme_sql(topics_sql: str, taxonomy_csv: str, themes: dict, min_score: float
 
 
 def run(con, entity, enrichment_dir, taxonomy_csv, themes, min_score, *, shard=Shard(), dry_run=False,
-        allow_incomplete=False) -> int:
+        allow_incomplete=False, tier=None, staging_catalog=None) -> int:
+    """`staging_catalog` = the alias staging is ATTACHed under on `con` (needed for `tier`; also gives the
+    output its staging fingerprint)."""
+    if tier is not None and not staging_catalog:
+        raise ValueError("tier needs the staging catalog (to know which works are in the tier)")
     topics = SideOutput(enrichment_dir, "topics", entity)
-    if not topics.is_complete() and not allow_incomplete:
+    if not topics.is_complete(tier) and not allow_incomplete:
         raise SystemExit(f"topics/{entity} is not complete (no _SUCCESS in {topics.dir}); run topics first or pass --allow-incomplete")
-    sql = theme_sql(topics.read_all_sql(), taxonomy_csv, themes, min_score, shard)
+    stamp = staging_stamp(con, entity, tier, staging_catalog) if staging_catalog else None
+    topics_sql = topics.read_all_sql()
+    if tier is not None:
+        topics_sql = f"SELECT t.* FROM ({topics_sql}) t SEMI JOIN {staging_catalog}.work w ON w.id = t.id AND w.link_tier = {int(tier)}"
+    sql = theme_sql(topics_sql, taxonomy_csv, themes, min_score, shard)
     table = con.sql(sql).to_arrow_table()
     con.register("theme_rows", table)
     counts = con.sql("SELECT theme, count(*) n FROM theme_rows GROUP BY 1 ORDER BY 1").fetchall()
@@ -84,10 +94,10 @@ def run(con, entity, enrichment_dir, taxonomy_csv, themes, min_score, *, shard=S
     logging.info(f"[{entity}] min_score={min_score}: {dict(counts) or 'no rows'}")
     if dry_run:
         return table.num_rows
-    out = SideOutput(enrichment_dir, "theme", entity, shard=shard)
+    out = SideOutput(enrichment_dir, "theme", entity, shard=shard, tier=tier)
     out.begin(reset=True)
     out.write(table)
-    out.finish()
+    out.finish(stamp)
     return table.num_rows
 
 
@@ -116,12 +126,13 @@ def main() -> None:
     min_score = args.min_score if args.min_score is not None else themes["min_score"]
     taxonomy = args.taxonomy_csv or get_dumps_paths()["oa_topics"]["path_raw"]
     con = duckdb.connect()
+    con.execute(f"ATTACH '{r.db}' AS stg (READ_ONLY)")
     for entity in r.entities:
         if args.sweep:
             sweep(con, entity, r.enrichment_dir, taxonomy, themes)
         else:
             run(con, entity, r.enrichment_dir, taxonomy, themes, min_score, shard=r.shard, dry_run=r.dry_run,
-                allow_incomplete=args.allow_incomplete)
+                allow_incomplete=args.allow_incomplete, tier=r.tier, staging_catalog="stg")
 
 
 if __name__ == "__main__":

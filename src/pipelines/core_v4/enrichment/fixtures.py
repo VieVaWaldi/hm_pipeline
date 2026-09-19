@@ -26,6 +26,8 @@ WORKS = [
     (4, None, None, "orphan", "Nowhere"),  # no title, no description: excluded
 ]
 
+WORK_TIERS = {1: 0, 2: 0, 3: 1, 4: 1}  # work i -> link_tier (0 = project-linked, 1 = org-only)
+
 ORGS = [
     # (i, country, street, postcode, city, address_country)
     (1, "DE", "Hauptstr. 1", "10115", "Berlin", "DE"),
@@ -48,14 +50,14 @@ def make_staging_fixture(path: Path) -> Path:
     con.execute(
         "CREATE TABLE work (id UBIGINT, openaireId VARCHAR, title VARCHAR, descriptions VARCHAR[],"
         " subjects STRUCT(subject STRUCT(scheme VARCHAR, value VARCHAR))[], container STRUCT(name VARCHAR),"
-        " countries VARCHAR[])"
+        " countries VARCHAR[], link_tier SMALLINT)"
     )
     for i, title, description, subject, container in WORKS:
         subjects = [] if subject is None else [{"subject": {"scheme": "keyword", "value": subject}}]
         con.execute(
-            "INSERT INTO work VALUES (hash(?), ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO work VALUES (hash(?), ?, ?, ?, ?, ?, ?, ?)",
             [f"w{i}", f"w{i}", title, [description] if description else [], subjects,
-             {"name": container} if container else None, ["DE"]],
+             {"name": container} if container else None, ["DE"], WORK_TIERS[i]],
         )
     con.execute(
         "CREATE TABLE organization (id UBIGINT, openaireId VARCHAR, legalName VARCHAR, countryCode VARCHAR,"

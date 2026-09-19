@@ -11,9 +11,11 @@ lower-casing, apostrophe unification, whitespace collapsing.
 
 Matching rules
   - whole word: the characters before and after a hit must not be alphanumeric;
-  - typo tolerance: for keywords of >= 6 chars, every edit-distance-1 variant (delete, transpose,
-    substitute, insert a-z; first letter fixed) also matches. A variant that equals an exact keyword
-    or belongs to two different groups is dropped;
+  - typo tolerance: for keywords of >= MIN_TYPO_LEN (8) chars, every edit-distance-1 variant (delete, transpose,
+    substitute, insert a-z; first letter fixed) also matches. A variant that equals an exact keyword, is a common
+    English word (english_words(): offline, from spaCy's en_core_web_sm) or belongs to two different groups is
+    dropped. The length floor and the word list exist because 6-7 character keywords sit one edit away from real
+    words ("hazard" is a substitution away from the keyword Hazara);
   - ambiguity: keywords of <= 4 chars (unless in rules.always_match) and rules.common_words only
     match exactly capitalised ("Sami") in case-preserved text, and get no typo variants;
     rules.blocklist never matches;
@@ -22,16 +24,18 @@ Matching rules
     their Wikidata ids in the override files).
 """
 
+import logging
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
+from typing import Dict, FrozenSet, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
 
 import ahocorasick
 import yaml
 
-MIN_TYPO_LEN = 6
+MIN_TYPO_LEN = 8  # normalised keywords shorter than this get no typo variants (6-7 chars: too many real words nearby)
 MAX_AMBIGUOUS_LEN = 4
 _ALPHABET = "abcdefghijklmnopqrstuvwxyz"
 _EXTRA_TRANSLIT = str.maketrans({"ł": "l", "Ł": "L", "ø": "o", "Ø": "O", "đ": "d", "Đ": "D", "æ": "ae", "Æ": "AE"})
@@ -89,6 +93,67 @@ def load_rules(path: Path = RULES_PATH) -> Rules:
     )
 
 
+
+
+@lru_cache(maxsize=1)
+def english_words() -> FrozenSet[str]:
+    """Common English words, offline: the lemma index and exception table of spaCy's en_core_web_sm (about 90,000 base
+    forms and irregular inflections, WordNet-derived, includes place names and some proper nouns) plus spaCy's stop
+    words. spaCy and en_core_web_sm are already dependencies (topic modelling), and nothing is downloaded. If the model
+    is missing the stop words alone are used, and if spaCy is missing nothing (both with a warning): typo variants are
+    then only filtered against the exact keywords."""
+    words: Set[str] = set()
+    try:
+        from spacy.lang.en.stop_words import STOP_WORDS
+
+        words.update(STOP_WORDS)
+    except ImportError:
+        logging.warning("spaCy is not installed: typo variants are not checked against an English word list")
+        return frozenset()
+    try:
+        import spacy.util
+        from spacy.lookups import Lookups
+
+        lookups = Lookups().from_disk(next(spacy.util.get_package_path("en_core_web_sm").glob("*/lemmatizer/lookups")))
+        for table_name in ("lemma_index", "lemma_exc"):
+            for value in lookups.get_table(table_name).values():
+                if isinstance(value, dict):
+                    for inflected, lemmas in value.items():
+                        words.add(inflected)
+                        words.update(lemmas)
+                else:
+                    words.update(value)
+    except Exception as e:  # missing model, changed spaCy layout: degrade, do not fail the run
+        logging.warning(f"spaCy en_core_web_sm lemma tables unavailable ({e!r}): using only spaCy's stop words as the English word list")
+    return frozenset(w.lower() for w in words if w.isalpha())
+
+
+def is_common_word(word: str, words: FrozenSet[str]) -> bool:
+    """Whether `word` (one normalised token) is in `words` or a plain inflection of a word in it."""
+    if word in words:
+        return True
+    return any(base in words for base in _base_forms(word))
+
+
+def _base_forms(word: str) -> List[str]:
+    """Candidate base forms of a regular English inflection (plural, -ed, -ing, -ly), spelling rules respected:
+    "gardens" -> garden, "boxes" -> box, "cities" -> city, "hoped" -> hope, but "gardenes" -> nothing."""
+    out: List[str] = []
+    if word.endswith("ies"):
+        out.append(word[:-3] + "y")
+    if word.endswith("es") and word[:-2].endswith(("s", "x", "z", "ch", "sh")):
+        out.append(word[:-2])
+    if word.endswith("s") and not word.endswith("ss"):
+        out.append(word[:-1])
+    if word.endswith("ed"):
+        out += [word[:-2], word[:-1]]
+    if word.endswith("ing"):
+        out += [word[:-3], word[:-3] + "e"]
+    if word.endswith("ly"):
+        out.append(word[:-2])
+    return out
+
+
 def _variants(word: str) -> Set[str]:
     """Edit-distance-1 variants of `word`, first letter kept (typos rarely hit it)."""
     out: Set[str] = set()
@@ -116,7 +181,15 @@ def _whole_word(text: str, start: int, end: int) -> bool:
 
 
 class MinorityMatcher:
-    def __init__(self, groups: Iterable[Group], rules: Optional[Rules] = None, typo: bool = True):
+    def __init__(
+        self,
+        groups: Iterable[Group],
+        rules: Optional[Rules] = None,
+        typo: bool = True,
+        known_words: Optional[Iterable[str]] = None,
+    ):
+        """`known_words`: the English words a typo variant must not equal (default: english_words(); pass an empty
+        collection to switch the check off)."""
         self.rules = rules if rules is not None else Rules()
         self.typo = typo
         # normalised keyword -> QIDs
@@ -148,6 +221,7 @@ class MinorityMatcher:
             else:
                 loose[k] = (k, qids, False, len(k))
         if typo:
+            words = english_words() if known_words is None else frozenset(known_words)
             variants: Dict[str, Optional[tuple]] = {}
             for k, qids in self.keyword_qids.items():
                 if k in self.ambiguous or len(k) < MIN_TYPO_LEN:
@@ -155,6 +229,8 @@ class MinorityMatcher:
                 for v in _variants(k):
                     if v in self.keyword_qids or v in self.rules.blocklist:
                         continue  # equals another exact keyword: keep that meaning
+                    if is_common_word(v, words):
+                        continue  # an ordinary English word one typo away from a keyword: not a typo
                     if v in variants and variants[v] is not None and variants[v][1] != qids:
                         variants[v] = None  # shared by different groups: ambiguous, drop
                     elif v not in variants:

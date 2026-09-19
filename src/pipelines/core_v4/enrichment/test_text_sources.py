@@ -115,3 +115,29 @@ def test_limit_and_read_only(staging, tmp_path):
     assert n == 2
     with pytest.raises(duckdb.Error):
         staging.execute("DELETE FROM work")
+
+
+# ---- tiers ---------------------------------------------------------------------------------
+def test_tier_restricts_works_and_gates_nllb_per_tier(staging, tmp_path):
+    kwargs = dict(with_nllb=False, enrichment_dir=tmp_path)
+    assert set(texts(staging, text_sql("work", ["title"], **kwargs))) == {work_id(1), work_id(2), work_id(3)}
+    assert set(texts(staging, text_sql("work", ["title"], tier=0, **kwargs))) == {work_id(1), work_id(2)}
+    assert set(texts(staging, text_sql("work", ["title"], tier=1, **kwargs))) == {work_id(3)}
+    with pytest.raises(ValueError, match="only applies to works"):
+        text_sql("project", ["title"], tier=0, **kwargs)
+
+    # nllb complete for tier 0 only: a tier-0 read works, tier 1 and the whole set are refused
+    for name in ("nllb", "nllb/seen"):
+        o = SideOutput(tmp_path, name, "work", tier=0)
+        o.begin()
+        o.finish()
+    text_sql("work", ["title"], enrichment_dir=tmp_path, tier=0)
+    with pytest.raises(NllbNotReadyError):
+        text_sql("work", ["title"], enrichment_dir=tmp_path, tier=1)
+    with pytest.raises(NllbNotReadyError):
+        text_sql("work", ["title"], enrichment_dir=tmp_path)
+
+
+def test_tier_in_streaming_batches(staging, tmp_path):
+    ids = {i for b in text_batches(staging, "work", ["title"], with_nllb=False, enrichment_dir=tmp_path, tier=0) for i in b.column("id").to_pylist()}
+    assert ids == {work_id(1), work_id(2)}

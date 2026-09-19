@@ -13,12 +13,15 @@ A field is translated when its LID label is not eng_Latn, P(label) >= --min-prob
 least 20 characters, and NLLB supports the language. Long texts are truncated (--max-chars).
 
 Resume: rows whose id already appears in nllb/seen are skipped. Parallel: --shard I/N.
+Works can be run per tier (`--entity work --tier 0|1`): tier 0 (project-linked) completes on its own
+(`_SUCCESS.tier0`) and is usable before tier 1 runs. Every `_SUCCESS` records the staging fingerprint.
 Needs a GPU node for real runs (compute nodes have no internet: run
 `python -m enrichment.nllb_translator.download` on the login node first).
 
 Usage:
     uv run python -m pipelines.core_v4.enrichment.nllb_translation --entity project
     uv run python -m pipelines.core_v4.enrichment.nllb_translation --entity work --shard 2/8
+    uv run python -m pipelines.core_v4.enrichment.nllb_translation --entity work --tier 0 --shard 1/6
     uv run python -m pipelines.core_v4.enrichment.nllb_translation --test 50      # dry run, no writes
 """
 
@@ -34,8 +37,9 @@ from common.log.logger import setup_logging
 from enrichment.nllb_translator.language_id import DEFAULT_MIN_PROB, LanguageIdentifier, should_translate
 from enrichment.nllb_translator.translator import DEFAULT_BATCH_TOKENS, DEFAULT_BEAM_SIZE, NllbTranslator
 from pipelines.core_v4.enrichment.cli import add_common_args, resolve
+from pipelines.core_v4.enrichment.fingerprint import staging_stamp
 from pipelines.core_v4.enrichment.side_outputs import SCHEMAS, Shard, SideOutput
-from pipelines.core_v4.enrichment.text_sources import NLLB_FIELDS, Entity, field_sql, open_staging
+from pipelines.core_v4.enrichment.text_sources import NLLB_FIELDS, Entity, field_sql, open_staging, tier_sql
 
 CHUNK_ROWS = 20_000  # rows per streamed batch: one part file per output per batch
 
@@ -51,12 +55,15 @@ def field_batches(
     shard: Shard = Shard(),
     exclude_ids_sql: Optional[str] = None,
     limit: Optional[int] = None,
+    tier: Optional[int] = None,
 ):
     """Streams (id, <one column per field>) Arrow batches for rows with at least one non-empty field.
     Same reading rules as text_sources.text_batches (one cursor, no OFFSET, resume by anti-join), but
     the fields stay separate: NLLB translates them one by one."""
     exprs = {f: field_sql(entity, f) for f in fields}
     where = [" OR ".join(f"length(trim({e})) > 0" for e in exprs.values())]
+    if tier_sql(entity, tier):
+        where.append(tier_sql(entity, tier))
     if shard.sql("e.id"):
         where.append(shard.sql("e.id"))
     if exclude_ids_sql:
@@ -140,11 +147,13 @@ def run_entity(
     dry_run: bool = False,
     min_prob: float = DEFAULT_MIN_PROB,
     chunk_rows: int = CHUNK_ROWS,
+    tier: Optional[int] = None,
 ) -> Dict[str, int]:
     """Translates every not-yet-seen row of `entity`. `_SUCCESS` is only written for a full,
     non-dry, unlimited run. Returns counters."""
-    nllb_out = SideOutput(enrichment_dir, "nllb", entity, shard=shard)
-    seen_out = SideOutput(enrichment_dir, "nllb/seen", entity, shard=shard)
+    stamp = staging_stamp(con, entity, tier)  # also fails early when --tier needs a link_tier column that is missing
+    nllb_out = SideOutput(enrichment_dir, "nllb", entity, shard=shard, tier=tier)
+    seen_out = SideOutput(enrichment_dir, "nllb/seen", entity, shard=shard, tier=tier)
     if not dry_run:
         nllb_out.begin()
         seen_out.begin()
@@ -152,7 +161,7 @@ def run_entity(
     timings: Dict[str, float] = {}
     start = time.perf_counter()
     for batch in field_batches(
-        con, entity, fields, batch_size=chunk_rows, shard=shard, exclude_ids_sql=seen_out.done_ids_sql(), limit=limit
+        con, entity, fields, batch_size=chunk_rows, shard=shard, exclude_ids_sql=seen_out.done_ids_sql(), limit=limit, tier=tier
     ):
         nllb_rows, seen_rows = process_rows(_batch_to_rows(batch, fields), lid, translator, min_prob, timings)
         counters["rows"] += batch.num_rows
@@ -172,8 +181,8 @@ def run_entity(
             f"translate {timings.get('translate', 0):.0f}s of {elapsed:.0f}s)"
         )
     if not dry_run and limit is None:
-        nllb_out.finish()
-        seen_out.finish()
+        nllb_out.finish(stamp)
+        seen_out.finish(stamp)
     return counters
 
 
@@ -208,6 +217,7 @@ def main(argv: Optional[list] = None) -> None:
         counters = run_entity(
             con, entity, fields, lid, translator, cfg.enrichment_dir,
             shard=cfg.shard, limit=cfg.limit, dry_run=cfg.dry_run, min_prob=args.min_prob, chunk_rows=args.chunk_rows,
+            tier=cfg.tier,
         )
         s = translator.stats
         logging.info(

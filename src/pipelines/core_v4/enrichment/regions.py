@@ -25,6 +25,7 @@ import pyarrow as pa
 from common.countries import register_country_macro
 from common.log.logger import setup_logging
 from pipelines.core_v4.enrichment.cli import add_common_args, resolve
+from pipelines.core_v4.enrichment.fingerprint import staging_stamp
 from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
 
 COUNTRY_REGIONS_CSV = Path(__file__).resolve().parents[3] / "enrichment" / "regions" / "country_regions.csv"
@@ -70,7 +71,7 @@ def run(con: duckdb.DuckDBPyConnection, out: SideOutput, *, limit: Optional[int]
             out.write(pa.Table.from_batches([batch]))
     cursor.close()
     if write:
-        out.finish()
+        out.finish(staging_stamp(con, "organization"))
     logging.info(f"regions: {total:,} rows {'written' if write else 'computed (--test, nothing written)'}")
     return total
 

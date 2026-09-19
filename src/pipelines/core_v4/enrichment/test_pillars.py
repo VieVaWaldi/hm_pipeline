@@ -78,3 +78,21 @@ def test_config_must_follow_bit_order(tmp_path):
     bad.write_text("flag_above: 0.3\npillars:\n  sustainable: ['a*']\n  inclusive: ['b*']\n  resilient: ['c*']\n  innovative: ['d*']\n  global: ['e*']\n")
     with pytest.raises(ValueError):
         load_config(bad)
+
+
+def test_tier_runs_reset_only_their_own_tier(tmp_path):
+    import duckdb
+
+    from pipelines.core_v4.enrichment.fixtures import make_staging_fixture, work_id
+    from pipelines.core_v4.enrichment.pillars import load_config, run_entity
+    from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
+
+    con = duckdb.connect(str(make_staging_fixture(tmp_path / "s.duckdb")))
+    con.execute("UPDATE work SET title = 'Innovative sustainable museums'")
+    cfg = load_config()
+    for tier in (0, 1, 0):  # rerunning tier 0 must neither duplicate tier 0 nor drop tier 1
+        run_entity(con, "work", str(tmp_path / "e"), Shard(), cfg=cfg, allow_untranslated=True, tier=tier)
+    out = SideOutput(tmp_path / "e", "pillars", "work")
+    ids = sorted(r[0] for r in duckdb.sql(f"SELECT id FROM ({out.read_all_sql()})").fetchall())
+    assert ids == sorted(work_id(i) for i in (1, 2, 3, 4))  # every work exactly once
+    assert out.is_complete()

@@ -39,10 +39,12 @@ from enrichment.minority_matching.matcher import (
     Group,
     MinorityMatcher,
     Rules,
+    english_words,
     load_groups_from_duckdb,
     load_rules,
 )
 from pipelines.core_v4.enrichment.cli import add_common_args, resolve
+from pipelines.core_v4.enrichment.fingerprint import staging_stamp
 from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
 from pipelines.core_v4.enrichment.text_sources import open_staging, text_batches
 
@@ -61,9 +63,9 @@ TOP_KEYWORDS = 20
 _matcher: Optional[MinorityMatcher] = None
 
 
-def _init_worker(groups: List[Group], rules: Rules, typo: bool) -> None:
+def _init_worker(groups: List[Group], rules: Rules, typo: bool, known_words) -> None:
     global _matcher
-    _matcher = MinorityMatcher(groups, rules, typo=typo)
+    _matcher = MinorityMatcher(groups, rules, typo=typo, known_words=known_words)
 
 
 def _match_batch(ids: List[int], texts: List[str], with_snippets: bool):
@@ -108,13 +110,15 @@ def run_entity(
     workers: int = 4,
     batch_size: int = 5_000,
     review: int = 0,
+    tier: Optional[int] = None,
 ) -> Dict[str, object]:
-    out = SideOutput(enrichment_dir, "minorities", entity, shard=shard)
-    seen = SideOutput(enrichment_dir, "minorities/seen", entity, shard=shard, schema=SEEN_SCHEMA)
+    stamp = staging_stamp(con, entity, tier)
+    out = SideOutput(enrichment_dir, "minorities", entity, shard=shard, tier=tier)
+    seen = SideOutput(enrichment_dir, "minorities/seen", entity, shard=shard, schema=SEEN_SCHEMA, tier=tier)
     if not dry_run:
         out.begin(reset=reset)
         seen.begin(reset=reset)
-        counts_file = out.dir / f"_keyword_counts-{shard.index}.json"
+        counts_file = out.dir / f"_keyword_counts-{out.tag}{shard.index}.json"
         if reset:
             counts_file.unlink(missing_ok=True)
 
@@ -145,7 +149,7 @@ def run_entity(
             # batch (duplicate hit rows, harmless: assemble takes DISTINCT) instead of losing hits
             seen.write(pa.table({"id": pa.array(ids, pa.uint64())}))
 
-    with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker, initargs=(groups, rules, typo)) as pool:
+    with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker, initargs=(groups, rules, typo, english_words() if typo else ())) as pool:
         batches = text_batches(
             con,
             entity,
@@ -156,6 +160,7 @@ def run_entity(
             shard=shard,
             exclude_ids_sql=None if dry_run else seen.done_ids_sql(),
             limit=limit,
+            tier=tier,
         )
         for batch in batches:
             ids = batch.column("id").to_pylist()
@@ -177,7 +182,7 @@ def run_entity(
 
     if not dry_run:
         if review:
-            path = out.dir / f"review-{shard.index}.csv"
+            path = out.dir / f"review-{out.tag}{shard.index}.csv"
             with open(path, "w", newline="", encoding="utf-8") as f:
                 w = csv.writer(f)
                 w.writerow(["keyword", "id", "typo", "capitalised_only", "snippet", "correct"])
@@ -190,8 +195,8 @@ def run_entity(
             previous[kw] = previous.get(kw, 0) + n
         counts_file.write_text(json.dumps(dict(sorted(previous.items(), key=lambda kv: -kv[1])), ensure_ascii=False, indent=1))
         if limit is None:
-            out.finish()
-            seen.finish()
+            out.finish(stamp)
+            seen.finish(stamp)
         else:
             logging.info(f"[{entity}] --limit given: not marking the output complete (no _SUCCESS)")
     return {**totals, "top_keywords": top}
@@ -235,6 +240,7 @@ def main() -> None:
             workers=args.workers,
             batch_size=args.batch_size,
             review=args.review,
+            tier=cfg.tier,
         )
 
 

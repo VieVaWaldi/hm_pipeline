@@ -111,3 +111,92 @@ def test_reset_only_drops_own_shard(tmp_path):
         o.write(dch_table([1]))
     a.begin(reset=True)
     assert [p.name for p in a.parts()] == ["part-001-000000.parquet"]
+
+
+# ---- tiers and staging stamps --------------------------------------------------------------
+STAMP0 = {"n": 2, "sum": "10", "xor": "6"}
+STAMP1 = {"n": 3, "sum": "100", "xor": "5"}
+
+
+def test_tier_parts_are_tagged_and_shard_reset_is_tier_scoped(tmp_path):
+    t0 = SideOutput(tmp_path, "dch", "work", shard=Shard(0, 2), tier=0)
+    t1 = SideOutput(tmp_path, "dch", "work", shard=Shard(0, 4), tier=1)  # same shard index, another tier and count
+    for o, i in ((t0, 1), (t1, 2)):
+        o.begin()
+        o.write(dch_table([i]))
+    assert t0.parts()[0].name == "part-t0-000-000000.parquet"
+    assert [p.name for p in t1.parts()] == ["part-t0-000-000000.parquet", "part-t1-000-000000.parquet"]  # readers see both tiers
+    t1.begin(reset=True)  # a tier-1 reset must not delete tier-0 rows
+    assert [p.name for p in t1.parts()] == ["part-t0-000-000000.parquet"]
+    t1.write(dch_table([3]))
+    assert {r[0] for r in duckdb.sql(f"SELECT id FROM ({t1.read_all_sql()})").fetchall()} == {1, 3}
+
+
+def test_tier_completion_markers(tmp_path):
+    outs = {t: SideOutput(tmp_path, "dch", "work", tier=t) for t in (0, 1)}
+    outs[0].begin()
+    outs[0].write(dch_table([1]))
+    assert outs[0].finish(STAMP0) is True
+    assert (outs[0].dir / "_SUCCESS.tier0").exists() and not outs[0].success_path.exists()
+    assert outs[0].is_complete() and outs[0].is_complete(0) and not outs[0].is_complete(1)
+    plain = SideOutput(tmp_path, "dch", "work")
+    assert plain.completion(0).stamp == STAMP0 and plain.completion(0).tier == 0
+    assert not plain.is_complete()  # "everything" is not complete yet
+
+    outs[1].begin()  # tier 1 starting must not invalidate tier 0
+    assert outs[0].is_complete()
+    outs[1].write(dch_table([2]))
+    assert outs[1].finish(STAMP1) is True
+    done = plain.completion(None)
+    assert done.path.name == "_SUCCESS" and done.tier is None
+    assert done.stamp == {"n": 5, "sum": "110", "xor": "3"}  # combined stamp of both tiers
+    assert plain.is_complete(0) and plain.completion(0).path.name == "_SUCCESS"
+
+    outs[0].begin()  # rerunning tier 0 drops its marker and the combined one, keeps tier 1's
+    assert not outs[0].is_complete() and not plain.is_complete()
+    assert outs[1].is_complete(1) and not (outs[0].dir / "_SUCCESS").exists()
+
+
+def test_untiered_run_clears_both_tier_markers_and_writes_one_success(tmp_path):
+    t0 = SideOutput(tmp_path, "dch", "work", tier=0)
+    t0.begin()
+    t0.finish(STAMP0)
+    full = SideOutput(tmp_path, "dch", "work")
+    full.begin()
+    assert not t0.is_complete()
+    full.finish(STAMP1)
+    assert full.is_complete() and not (full.dir / "_SUCCESS.tier0").exists()
+    assert full.completion(0).stamp == STAMP1
+
+
+def test_stamp_is_stored_and_legacy_marker_has_none(tmp_path):
+    out = SideOutput(tmp_path, "dch", "work")
+    out.begin()
+    out.finish()  # no stamp: the empty marker of an older run
+    assert out.completion().stamp is None and out.is_complete()
+    out.begin()
+    out.finish(STAMP0)
+    assert out.completion().stamp == STAMP0
+
+
+def test_shards_with_different_stamps_never_complete(tmp_path):
+    from pipelines.core_v4.enrichment.side_outputs import ShardStampMismatch
+
+    a, b = (SideOutput(tmp_path, "dch", "work", shard=Shard(i, 2), tier=0) for i in range(2))
+    a.begin()
+    b.begin()
+    assert a.finish(STAMP0) is False
+    with pytest.raises(ShardStampMismatch):
+        b.finish(STAMP1)
+    assert not a.is_complete()
+    assert b.finish(STAMP0) is True  # reran against the current staging
+    assert a.completion(0).stamp == STAMP0
+
+
+def test_tier_shard_markers_are_named_per_tier(tmp_path):
+    a = SideOutput(tmp_path, "dch", "work", shard=Shard(0, 2), tier=1)
+    a.begin()
+    a.finish(STAMP0)
+    assert (a.dir / "_SUCCESS.t1.0-of-2").exists()
+    with pytest.raises(ValueError):
+        SideOutput(tmp_path, "dch", "work", tier=2)

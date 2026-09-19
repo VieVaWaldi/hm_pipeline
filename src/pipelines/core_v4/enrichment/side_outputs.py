@@ -172,7 +172,8 @@ class SideOutput:
         return self.dir / f"{SUCCESS_FILE}.tier{tier}"
 
     @property
-    def _tag(self) -> str:
+    def tag(self) -> str:
+        """File-name tag of this run's tier ("" untiered, "t0-", "t1-")."""
         return "" if self.tier is None else f"t{self.tier}-"
 
     def _shard_marker(self, index: int) -> Path:
@@ -229,7 +230,7 @@ class SideOutput:
         if self.schema is not None:
             table = table.select(self.schema.names).cast(self.schema)
         self.dir.mkdir(parents=True, exist_ok=True)
-        final = self.dir / f"part-{self._tag}{self.shard.index:03d}-{self._next_part_index():06d}.parquet"
+        final = self.dir / f"part-{self.tag}{self.shard.index:03d}-{self._next_part_index():06d}.parquet"
         tmp = final.with_name(final.name + ".tmp")
         pq.write_table(table, tmp, compression="zstd")
         os.replace(tmp, final)

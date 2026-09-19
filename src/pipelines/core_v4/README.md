@@ -1,6 +1,7 @@
 # Core_v4 Strategy
 
-! Not a target yet! WIP !
+Status (2026-09-19): built and tested locally (transformation, enrichments, assemble, Snakemake targets), NOT yet run on
+prod. Waiting on the rebuilt v4 staging (`project.doi`, `work.countries`). Serving and index building are out of scope.
 
 ---
 
@@ -14,6 +15,61 @@ Cordis is merged deeper and enrichment expanded. OpenSearch is served from now i
 Numbers in this file come from `investigation/phase1_measurements.py` (JSON next to it: `investigation/phase1_measurements.json`),
 run on prod on 2026-09-19 against `openaire_staging_2.duckdb` (core_v3's own staging, ids already hashed), `ror_raw.duckdb`
 and `cordis_full_projects_no_pdfs_raw.duckdb`. Every database is attached READ_ONLY. Rerun: see the docstring of the script.
+
+## 0. Pipeline overview and decisions (phases 2 and 3)
+
+```
+openaire_staging_v4 + ror_raw + cordis_full + core_v2 geolocation files
+        │  core_v4_transformation   (trim works to 50M, ROR + Cordis + core_v2 coordinates, addresses)
+        ▼
+core_v4_staging.duckdb  (read-only from here on)
+        │  enrichments write side parquet files (sharded, resumable, independent):
+        │  nllb → topics → theme; nllb → minorities / pillars / dch; regions; geolocation (last, Mapbox budget)
+        ▼
+data/enrichment/core_v4/<name>/<entity>/   (+ _SUCCESS markers carrying a staging fingerprint)
+        │  assemble (--entity project | work [--tier 0])
+        ▼
+core_v4_projects.duckdb (projects, organizations, project–org relations, topics)     ← built first
+core_v4_works_linked.duckdb (tier 0: project-linked works)  →  core_v4_works.duckdb (all 50M works)
+```
+
+Details: `READ_TRANSFORMATION.md`, `READ_ASSEMBLE.md`, `enrichment/README.md`, `src/enrichment/*/README.md`,
+`orchestration/README.md` (core_v4 section).
+
+**Decisions**
+
+| Step | Decision |
+|---|---|
+| Staging | Keep all `instances`, `authors`, `sources` on works (trim before serving, not now). Restore `work.countries` (codes) and add `project.doi`. |
+| Work trim | 218M → 50M at seed time. Keep all project-linked works (tier 0, ~5.0M), then org-only works (tier 1) newest first (cutoff ≈ 2018-05); works with no relation are dropped. Dates after today → NULL. Tie-break: date, has description, id. `work.link_tier` records the tier. Dangling relations are dropped. |
+| Cordis | PIC first (89.7% of triplets vs 52.0% for name + country); name + country only for rows without a PIC match; never name only. Projects match on grantId, DOI fallback. Funding values go on project→org relation rows, addresses on matched orgs; an org-level PIC pass also covers orgs whose project did not match. |
+| Coordinates | Free tiers in order: ROR → Cordis → core_v2 legacy files (PIC, then name + country), each only where still NULL. `geolocation` = `[lat, lng]`; `geolocation_source` = ror / cordis / core_v2 / mapbox / mapbox_temporary. |
+| NLLB | fastText language ID on the text (the `language` label is ignored: 33% are `und`); only non-English is translated (~20% of works). nllb-200 1.3B distilled, CTranslate2 float16, beam 1: ~37 A100-hours for 50M works, 10 GB VRAM. Translations live in side files; assemble overwrites the original text and sets `is_translated`. Projects first, then works tier 0, then tier 1. |
+| Topics / theme | TF-IDF (optimised: batched sparse product, worker pool); theme (Economy / Tourism) from the best topic above `--min-score` (0.1 provisional, tune on real data). |
+| Minorities | Aho-Corasick over normalised text; typo variants only for keywords ≥ 8 chars and never a common English word; blocklist for short ambiguous keywords. Prod uses the 278-group set, local dev has 312. |
+| Pillars | 5-bit `UTINYINT` mask (inclusive, sustainable, resilient, innovative, global), whole-word stems in SQL. Check the per-pillar match rates on prod. |
+| DCH | Chunked streaming reads, results in side files (the BERT model is English-only, hence after NLLB). |
+| Regions | Static country → region table (five European regions plus outside Europe). |
+| Geolocation (Mapbox) | Batch endpoint, only orgs with a real address, cached in `data/cache/mapbox.duckdb` (with a `permanent` flag), free-tier results are stored as `mapbox_temporary` and can be re-fetched permanent later (`--refresh-temporary`). Street-only results accepted when the city (or postcode) matches. Off unless a request budget is given. Est. ~16k requests needed. |
+| Two gold files | Projects file first, then works (tier 0, then all), so project results are usable before the works chain runs. |
+| Idempotence | The artifacts are the enrichments' `_SUCCESS` files and the duckdbs; limit runs use separate paths; assemble refuses side outputs whose fingerprint does not match staging (`--allow-stale`). |
+
+**Run (prod)**
+
+```bash
+ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v4_projects
+ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v4_works_linked
+ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v4_works
+# limit run (separate paths): add --config limit=50 ; dry run: -n ; geolocation: --config geolocation_max_requests=N
+```
+
+Prerequisites on prod: rebuilt `openaire_staging_v4.duckdb` (`stage_openaire_dump_v4`; the transformation aborts if `doi`/`countries`
+are missing), `ror_raw`, the full Cordis DB, `data/pile/core_v2_geolocation/{core_v2_geolocations,core_v2_institution_pic}.duckdb`
+(optional), `data/models/nllb` (download on a login node), `data/models/bert_classifier`.
+
+One-off diagnostics (prod, read-only): `investigation/cordis_project_match.py` (why grantId matching fell to 61.2%, what a DOI
+join recovers) and `investigation/geolocation_coverage.py` (coordinates per tier and, above all, projects with ≥ 2 geolocated
+participants).
 
 ## 1. Sources (report paths, relative to the repo root)
 
@@ -299,6 +355,11 @@ After this mapping nothing is left unmapped in any of the four sources.
 
 ## 6. Open items
 
+Resolved in phases 2 and 3 (see section 0): future-dated works (set to NULL), tie-break at the cutoff, NLLB language handling and
+truncation, Mapbox scope (addresses only, free tier stored), the core_v2 legacy coordinates, the PIC-first Cordis merge.
+Still open below: the v4 staging check, the Cordis project match drop (diagnosis script written, not yet run), PIC vs name
+disagreement, the "keep works connected to minorities" rule (dropped from the plan), country mapping judgement calls.
+
 * **v4 staging check.** `openaire_staging_v4.duckdb` was built on 2026-09-19 (SLURM 8980403, 31 min, exit 0). Its report
   `reports/sources/dumps/openaire_dump_staging_v4_2026_06_05.md` was still queued when this was written (SLURM 8980627, waiting for a free
   `fat` node): confirm it exists and that `work.countries` is populated in it. Report jobs write into the checkout the job was launched from.
@@ -327,82 +388,3 @@ After this mapping nothing is left unmapped in any of the four sources.
 * **Dropped raw columns** (section 2) were dropped by core_v3 staging and are unchanged in v4. Candidates to revisit: project `pids`
   (DOI), `h2020Programmes`, work `subTitle`.
 * **Files not yet in the prod checkout.** Phase 1 was developed in a separate checkout because core_v3 jobs were starting up.
-
----
-
-## Strategy notes (previous README, unchanged)
-
-**Idempotence**:
-* ... how?
-* Just make a new duckdb for each big step, that u always tear down and rebuild from scratch? @Claude if you know better tell me lol
-
-**Reports**:
-* For each duckdb created make a report
-
-**Limit runs**:
-* parameter --limit -n default 1000 per entity (if thats not snakemake namespace) to make one real but fast test run
-
-Open:
-* Can we measure/ note (here in this readme or where? maybe we can add that to reports but reports is static rn/ depends on no state, which is great, not sure how we d add process run time to that)
-
-### ... core_v4 process? ...
-
-* we may just copy the high level base process from core_v3 verbatim
-* target 1 single duckdb file for core_v4? how big can duckdb files get? 
-
-@Claude argue with me here:
-1. Add ROR to OpenAIRE -> core_v4_staging.duckdb
-2. Merge Cordis
-- Needs to be analysed in core_v3 first to see what we already have
-- I feel like we only found matching project -> relation -> organization triplets and added 
-
-* Merging Cordis 
-
-    * From Cordis only institution level funding information for projects is needed from `j_project_institution`
-    * From ROR organization information like geolocation and others are needed.
-2. Enrichment
-    * TFIdf Topic Classification using `../../enrichment/topic_modelling` -> I did this before step 5 so the intermediate core file is called path_duck_staging_2 in the config.
-    * CH Classification
-3. And finally a deployment from duckdb to postgresdb
-
---- This is new and not done ---
-
-...
-
-### Drop Works
-
--> Because our VM sucks and cant handle 200M
-
-* Create a new core_v3 duckdb that removes works and respective relations
-* Hard Limit by 50 Million works
-* Keep all works connected to minorities
-* Keep as many works connected to projects, works as possible
-* Drop works with many nulls or that are older
-
-### Enrichment - WIP
-
-- Parallelize what can be safely and easily parallelized!
-- Target projects for all enrichments before doing works, as works takes very long and i present this in 3 days
-
-1. Geolocations 
--> for organisations
-
-2. NLLB
--> for projects and works
--> Must happen before all text based enrichment, so we got english for all texts.
-
-3. Topics TF-IDF
--> for projects and works
-
-4. Keyword Matching
--> for projects and works
-* Theme & Pillars (Needs Topics)
-* Regions Mapping
-* Minorities? (thats a merge later with projects right?)
-
-5. DCH Classification (broke last time after 2 mil projects)
--> for projects and works
-
-### Serving - WIP
-
-* Each index served gets a version number prefix: /corev3/{version}/indexreports:

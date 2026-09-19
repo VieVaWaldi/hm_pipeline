@@ -14,8 +14,11 @@ rebuilt from scratch on every run. Persistent caches (path_cache_dir) and enrich
 side outputs (path_enrichment_dir) are never touched.
 
 Seed (tables copied from OpenAire staging v4, `openaire_dump.path_duck_staging_v4`):
-  - organization, project, relation: whole (relation cascaded to the kept works)
-  - work: only the `work_cap` best works, see below
+  - organization, project: whole
+  - relation: cascaded to the kept works, and rows whose project or organization endpoint is missing from
+    `project` / `organization` are dropped (logged)
+  - work: only the `work_cap` best works, see below; `link_tier` SMALLINT (0 = project-linked, 1 = org-only) is kept
+    on every work, so the enrichments can run tier 0 first (`--tier 0`) and assemble can build a tier-0 file
 
 Work trim: tier 0 = produced by a project (relation project-produces->product), tier 1 =
 authored by an organization (product-hasAuthorInstitution->organization); works with
@@ -84,6 +87,7 @@ class Paths:
     work_cap: int
     core_v2_geo: Optional[Path] = None  # legacy geolocations (optional; skipped when missing)
     core_v2_pic: Optional[Path] = None  # legacy institution_pic, a SEPARATE file (optional; name + country only without it)
+    strict_columns: bool = False  # the configured (real) staging must have project.doi and work.countries, see check_staging_columns
 
 
 def resolve_paths(
@@ -106,6 +110,8 @@ def resolve_paths(
     core_v2_pics = core_v2_pic or block.get("path_core_v2_institution_pic")
     cap = work_cap if work_cap is not None else int(pipelines["core_v4"].get("work_cap", DEFAULT_WORK_CAP))
     return Paths(
+        # a --staging-db override (tests, ad-hoc runs) or the limit variant stays tolerant about missing columns
+        strict_columns=variant == "full" and staging_db is None,
         staging=Path(staging_db or get_dumps_paths()["openaire_dump"]["path_duck_staging_v4"]),
         ror=Path(get_dumps_paths()["ror_dump"]["path_duck"]),
         # dev override (`--cordis-db`, or the env var so a Snakemake run picks it up): the full Cordis db is empty locally
@@ -142,6 +148,32 @@ def _has_column(con: duckdb.DuckDBPyConnection, database: Optional[str], table: 
 
 def _one(con: duckdb.DuckDBPyConnection, sql: str) -> Any:
     return con.execute(sql).fetchone()[0]
+
+
+# Columns of staging v4 that later steps use; an older staging built before they were added would lose them silently.
+REQUIRED_STAGING_COLUMNS = {
+    ("project", "doi"): "the DOI fallback of the Cordis project match (Cordis projects without a grantId match are lost)",
+    ("work", "countries"): "the normalisation of work.countries (common.countries)",
+}
+
+
+def check_staging_columns(con: duckdb.DuckDBPyConnection, strict: bool, allow_missing: bool = False) -> list:
+    """Checks the attached `openaire` staging for REQUIRED_STAGING_COLUMNS. With `strict` (the real full run) a missing
+    column aborts with the rebuild command, unless `allow_missing`; otherwise it is a WARNING naming the skipped step.
+    Returns the missing (table, column) pairs."""
+    missing = [tc for tc in REQUIRED_STAGING_COLUMNS if not _has_column(con, "openaire", *tc)]
+    if not missing:
+        return []
+    what = "; ".join(f"openaire.{t}.{c}: {REQUIRED_STAGING_COLUMNS[(t, c)]}" for t, c in missing)
+    if strict and not allow_missing:
+        raise RuntimeError(
+            f"the OpenAire staging v4 lacks column(s) that would be silently skipped ({what}). It was built before they were "
+            "added: rebuild it (`python -m sources.dumps.openaire.staging --target v4`, rule stage_openaire_dump_v4), or pass "
+            "--allow-missing-columns to run without them."
+        )
+    for t, c in missing:
+        logging.warning(f"OpenAire staging has no {t}.{c}: skipping {REQUIRED_STAGING_COLUMNS[(t, c)]}")
+    return missing
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +317,8 @@ def _seed(con: duckdb.DuckDBPyConnection, work_cap: int) -> Dict[str, Any]:
 
     # Join the kept ids to the wide table (no sort of the wide table). Future dates -> NULL,
     # country codes normalised.
+    if not _has_column(con, "openaire", "work", "countries"):
+        logging.warning("OpenAire staging has no work.countries: work.countries stays as it is (no normalisation)")
     countries = (
         "countries"
         if not _has_column(con, "openaire", "work", "countries")
@@ -294,12 +328,14 @@ def _seed(con: duckdb.DuckDBPyConnection, work_cap: int) -> Dict[str, Any]:
     replace = "CASE WHEN w.publicationDate <= current_date THEN w.publicationDate END AS publicationDate"
     if _has_column(con, "openaire", "work", "countries"):
         replace += f", {countries.replace('countries', 'w.countries')} AS countries"
+    # link_tier (0 = project-linked, 1 = org-only) is the tier the trim ranked the work by; kept as the LAST column
     con.execute(f"""CREATE OR REPLACE TABLE work AS
-            SELECT w.* REPLACE ({replace})
+            SELECT w.* REPLACE ({replace}), k.tier::SMALLINT AS link_tier
             FROM _src_work w JOIN _work_keep k ON k.id = w.id""")
 
-    # Relation cascade: product-side relations only for kept works; all project -> organization.
-    con.execute("""CREATE OR REPLACE TABLE relation AS
+    # Relation cascade: product-side relations only for kept works; all project -> organization. Rows whose project or
+    # organization endpoint is not in `project` / `organization` are dropped as well (dangling: nothing to serve them from).
+    con.execute("""CREATE OR REPLACE TEMP VIEW _relation_cascade AS
            SELECT * FROM _src_relation WHERE sourceType = 'project' AND targetType = 'organization'
            UNION ALL
            SELECT * FROM _src_relation WHERE sourceType = 'project' AND targetType = 'product'
@@ -307,6 +343,24 @@ def _seed(con: duckdb.DuckDBPyConnection, work_cap: int) -> Dict[str, Any]:
            UNION ALL
            SELECT * FROM _src_relation WHERE sourceType = 'product' AND targetType = 'organization'
              AND source IN (SELECT id FROM _work_keep)""")
+    no_project = """(sourceType = 'project' AND source NOT IN (SELECT id FROM project))
+                    OR (targetType = 'project' AND target NOT IN (SELECT id FROM project))"""
+    no_org = """(sourceType = 'organization' AND source NOT IN (SELECT id FROM organization))
+                OR (targetType = 'organization' AND target NOT IN (SELECT id FROM organization))"""
+    total, n_no_project, n_no_org, n_dropped = con.execute(
+        f"""SELECT count(*), count(*) FILTER (WHERE {no_project}), count(*) FILTER (WHERE {no_org}),
+                   count(*) FILTER (WHERE ({no_project}) OR ({no_org}))
+            FROM _relation_cascade"""
+    ).fetchone()
+    stats["dangling_endpoints"] = {"project": n_no_project, "organization": n_no_org, "dropped": n_dropped}
+    logging.info(
+        f"relation rows after the works cascade: {total:,}; dropped because the project is missing: {n_no_project:,}, "
+        f"the organization is missing: {n_no_org:,} ({n_dropped:,} rows in all)"
+    )
+    con.execute(
+        f"""CREATE OR REPLACE TABLE relation AS
+            SELECT * FROM _relation_cascade WHERE NOT (({no_project}) OR ({no_org}))"""
+    )
     for table in ("organization", "project", "work", "relation"):
         logging.info(f"  {table}: {_one(con, f'SELECT count(*) FROM {table}'):,} rows")
     return stats
@@ -628,10 +682,19 @@ def build(
     limit: Optional[int] = None,
     mem_mb: Optional[int] = None,
     threads: Optional[int] = None,
+    allow_missing_columns: bool = False,
 ) -> Dict[str, Any]:
     """Rebuilds `paths.out` from scratch. Returns the headline numbers (also logged)."""
     if paths.work_cap < 1:
         raise ValueError(f"work_cap must be >= 1, got {paths.work_cap}")
+
+    # before the previous output is removed: an abort here leaves the last good staging alone
+    probe = duckdb.connect()
+    try:
+        probe.execute(f"ATTACH '{paths.staging}' AS openaire (READ_ONLY)")
+        check_staging_columns(probe, paths.strict_columns, allow_missing_columns)
+    finally:
+        probe.close()
 
     paths.out.parent.mkdir(parents=True, exist_ok=True)
     _reset_outputs(paths.out)
@@ -702,6 +765,14 @@ def build(
         )
         logging.info(f"relation rows pointing at a dropped work (must be 0): {dangling:,}")
         result["dangling_relations"] = dangling
+        dangling_endpoints = _one(
+            con,
+            """SELECT count(*) FROM relation r
+               WHERE (r.sourceType = 'project' AND r.source NOT IN (SELECT id FROM project))
+                  OR (r.targetType = 'organization' AND r.target NOT IN (SELECT id FROM organization))""",
+        )
+        logging.info(f"relation rows pointing at a missing project or organization (must be 0): {dangling_endpoints:,}")
+        result["relation_missing_endpoints"] = dangling_endpoints
         log_run_time(total_start)
         logging.info(f"Database: {paths.out}")
     finally:
@@ -750,6 +821,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         "e.g. the heritage subset when the full db is not loaded locally",
     )
     parser.add_argument(
+        "--allow-missing-columns",
+        action="store_true",
+        help="run although the OpenAire staging lacks project.doi / work.countries (their steps are skipped with a WARNING). "
+        "Without it the full run aborts: rebuild the staging (stage_openaire_dump_v4) instead.",
+    )
+    parser.add_argument(
         "--work-cap",
         type=int,
         default=None,
@@ -781,7 +858,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         logging.info(f"LIMIT mode: {limit} projects")
 
     try:
-        build(paths, limit=limit, mem_mb=args.mem_mb, threads=args.threads)
+        build(paths, limit=limit, mem_mb=args.mem_mb, threads=args.threads, allow_missing_columns=args.allow_missing_columns)
     except RuntimeError as e:
         logging.error(str(e))
         sys.exit(1)

@@ -867,3 +867,133 @@ def test_cordis_db_override_flag_and_env_var(tmp_path, monkeypatch):
     monkeypatch.setenv(transformation.CORDIS_DB_ENV, "from_env.duckdb")
     assert str(transformation.resolve_paths("full").cordis) == "from_env.duckdb"
     assert str(transformation.resolve_paths("full", cordis_db="flag.duckdb").cordis) == "flag.duckdb"  # flag beats env
+
+
+# ---------------------------------------------------------------------------
+# link_tier, dangling relations, required staging columns (Phase 3F)
+# ---------------------------------------------------------------------------
+def test_link_tier_kept_on_work_as_last_smallint_column(tmp_path):
+    staging = dict(
+        orgs=[(1, "Org", "DE")],
+        projects=[(1, "g1", None)],
+        works=[(1, date(2000, 1, 1), True, None), (2, date(2020, 1, 1), True, None), (3, date(2021, 1, 1), True, None)],
+        relations=[produces(1, 1), authored(1, 1), authored(2, 1)],  # w1 is both: tier 0 wins
+    )
+    _, con = run(tmp_path, staging)
+    assert dict((i - WORK, t) for i, t in con.execute("SELECT id, link_tier FROM work").fetchall()) == {1: 0, 2: 1}
+    cols = con.execute("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'work' ORDER BY ordinal_position").fetchall()
+    assert cols[-1] == ("link_tier", "SMALLINT")
+
+
+def test_link_tier_follows_the_trim_when_the_cap_binds(tmp_path):
+    staging = dict(
+        orgs=[(1, "Org", "DE")],
+        projects=[(1, "g1", None)],
+        works=[(1, date(1995, 1, 1), False, None), (2, date(2024, 1, 1), True, None), (3, date(2023, 1, 1), True, None)],
+        relations=[produces(1, 1), authored(2, 1), authored(3, 1)],
+    )
+    _, con = run(tmp_path, staging, cap=2)
+    assert dict((i - WORK, t) for i, t in con.execute("SELECT id, link_tier FROM work").fetchall()) == {1: 0, 2: 1}
+
+
+def test_dangling_relations_to_missing_projects_and_orgs_are_dropped(tmp_path, caplog):
+    staging = dict(
+        orgs=[(1, "Org", "DE")],  # org 2 is not in organization
+        projects=[(1, "g1", None)],  # project 2 is not in project
+        works=[(1, date(2020, 1, 1), True, None), (2, date(2019, 1, 1), True, None)],
+        relations=[
+            participant(1, 1),  # fine
+            participant(1, 2),  # org 2 missing
+            participant(2, 1),  # project 2 missing
+            participant(2, 2),  # both missing: counted once as dropped, in both endpoint counts
+            produces(1, 1),  # fine
+            produces(2, 2),  # project 2 missing (the work exists)
+            authored(1, 1),  # fine
+            authored(2, 2),  # org 2 missing
+        ],
+    )
+    with caplog.at_level("INFO"):
+        result, con = run(tmp_path, staging)
+    rels = sorted(con.execute("SELECT sourceType, source - 0, targetType, target FROM relation").fetchall())
+    assert rels == sorted(
+        [
+            ("project", PROJ + 1, "organization", ORG + 1),
+            ("project", PROJ + 1, "product", WORK + 1),
+            ("product", WORK + 1, "organization", ORG + 1),
+        ]
+    )
+    assert result["seed"]["dangling_endpoints"] == {"project": 3, "organization": 3, "dropped": 5}
+    assert result["relation_missing_endpoints"] == 0
+    assert "the project is missing: 3" in caplog.text and "the organization is missing: 3" in caplog.text
+    # work 2 stays (it is a kept work); only its relations to nothing are gone
+    assert works_kept(con) == [1, 2]
+
+
+def test_no_dangling_relations_when_everything_exists(tmp_path):
+    staging = dict(orgs=[(1, "O", "DE")], projects=[(1, "g", None)], works=[(1, date(2020, 1, 1), True, None)],
+                   relations=[participant(1, 1), produces(1, 1), authored(1, 1)])
+    result, con = run(tmp_path, staging)
+    assert result["seed"]["dangling_endpoints"] == {"project": 0, "organization": 0, "dropped": 0}
+    assert con.execute("SELECT count(*) FROM relation").fetchone()[0] == 3
+
+
+def _drop_columns(staging_path, *pairs):
+    con = duckdb.connect(str(staging_path))
+    for table, column in pairs:
+        con.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+    con.close()
+
+
+def test_full_run_aborts_when_the_staging_lacks_doi_or_countries(tmp_path, monkeypatch, caplog):
+    _patch_config(monkeypatch, tmp_path)
+    previous = tmp_path / "full_staging.duckdb"
+    previous.write_bytes(b"last good staging")
+    _drop_columns(tmp_path / "staging.duckdb", ("project", "doi"), ("work", "countries"))
+    with caplog.at_level("ERROR"), pytest.raises(SystemExit) as exc:
+        main([])
+    assert exc.value.code == 1
+    assert "stage_openaire_dump_v4" in caplog.text and "project.doi" in caplog.text and "work.countries" in caplog.text
+    assert "--allow-missing-columns" in caplog.text
+    assert previous.read_bytes() == b"last good staging"  # the abort happens before the old output is removed
+
+
+def test_full_run_with_allow_missing_columns_warns_and_skips(tmp_path, monkeypatch, caplog):
+    _patch_config(monkeypatch, tmp_path)
+    _drop_columns(tmp_path / "staging.duckdb", ("project", "doi"))
+    with caplog.at_level("WARNING"):
+        main(["--allow-missing-columns"])
+    assert "no project.doi: skipping the DOI fallback" in caplog.text
+    con = duckdb.connect(str(tmp_path / "full_staging.duckdb"), read_only=True)
+    assert con.execute("SELECT count(*) FROM work").fetchone()[0] == 5
+
+
+def test_full_run_with_a_complete_staging_needs_no_flag(tmp_path, monkeypatch):
+    _patch_config(monkeypatch, tmp_path)
+    main([])  # both columns present: strict check passes
+
+
+def test_limit_variant_and_staging_db_override_stay_tolerant_but_warn(tmp_path, monkeypatch, caplog):
+    _patch_config(monkeypatch, tmp_path)
+    staging = tmp_path / "staging.duckdb"
+    _drop_columns(staging, ("project", "doi"), ("work", "countries"))
+    with caplog.at_level("WARNING"):
+        main(["--limit", "3"])
+    assert "no project.doi" in caplog.text and "no work.countries" in caplog.text
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        main(["--staging-db", str(staging)])  # explicit override in a full run: tolerant too
+    assert "no project.doi" in caplog.text and "no work.countries" in caplog.text
+
+
+def test_check_staging_columns_direct(tmp_path):
+    con = duckdb.connect()
+    path = make_staging(tmp_path / "s.duckdb", orgs=[(1, "O", "DE")])
+    con.execute(f"ATTACH '{path}' AS openaire (READ_ONLY)")
+    assert transformation.check_staging_columns(con, strict=True) == []
+    con.execute("DETACH openaire")
+    _drop_columns(path, ("work", "countries"))
+    con.execute(f"ATTACH '{path}' AS openaire (READ_ONLY)")
+    assert transformation.check_staging_columns(con, strict=False) == [("work", "countries")]
+    with pytest.raises(RuntimeError, match="stage_openaire_dump_v4"):
+        transformation.check_staging_columns(con, strict=True)
+    assert transformation.check_staging_columns(con, strict=True, allow_missing=True) == [("work", "countries")]

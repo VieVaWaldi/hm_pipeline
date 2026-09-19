@@ -26,7 +26,7 @@ cp .env.example .env
 # Full core_v3 (sources -> merge -> enrichment -> reports), HPC
 ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v3
 # Same on a sample of 500 rows per entity (overwrites core_v3's duckdbs)
-ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v3 --config limit=500
+ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v3 --config limit=500 # limit is DESTRUCTIVE ! 
 ```
 
 ```bash

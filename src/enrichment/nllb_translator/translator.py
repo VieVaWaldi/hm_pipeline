@@ -37,8 +37,8 @@ TARGET_LANG = "eng_Latn"
 
 DEFAULT_MAX_CHUNK_TOKENS = 200
 DEFAULT_MAX_CHARS = 1500  # truncation of long texts (descriptions); titles are far shorter
-DEFAULT_BATCH_TOKENS = 8192  # source tokens per translate batch
-DEFAULT_BEAM_SIZE = 2
+DEFAULT_BATCH_TOKENS = 32768  # source tokens per translate batch (8192 -> 32768: +50% tokens/s, ~10 GB VRAM for 1.3B)
+DEFAULT_BEAM_SIZE = 1  # greedy: 2.2x faster than beam 2 for -2 chrF (README)
 
 # Sentence end (Latin, Greek question mark, Arabic, CJK, Devanagari danda) followed by whitespace,
 # or a CJK/danda terminator that needs no whitespace after it.
@@ -203,7 +203,7 @@ def _preload_cuda_libs() -> None:
 class NllbTranslator:
     def __init__(
         self,
-        model: str = "600M",
+        model: str = "1.3B",
         backend: str = "ctranslate2",
         device: str = "cuda",
         quantization: str = DEFAULT_QUANTIZATION,

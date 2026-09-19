@@ -172,7 +172,7 @@ def run_entity(
 def main(argv: Optional[list] = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_common_args(parser, text=False)
-    parser.add_argument("--model", default="600M", choices=["600M", "1.3B"])
+    parser.add_argument("--model", default="1.3B", choices=["600M", "1.3B"])
     parser.add_argument("--backend", default="ctranslate2", choices=["ctranslate2", "transformers"])
     parser.add_argument("--quantization", default="float16", help="CTranslate2 weight type of the converted model")
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])

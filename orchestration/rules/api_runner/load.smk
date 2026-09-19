@@ -51,8 +51,10 @@ rule load_source:
         # {source} is constrained to exclude "_" — query names contain underscores
         # (e.g. heritage_digital_humanities), so without this the wildcard split is ambiguous.
         "data/checkpoints/loading/{source,[^_]+}_{query_id}/mtime.cp",
+    log:
+        str(LOGGING_PATH / "load_source_{source}_{query_id}.log"),
     shell:
-        "python -m common.api_runner.run_loader --source {wildcards.source} --query_id {wildcards.query_id} --db duck"
+        "python -m common.api_runner.run_loader --source {wildcards.source} --query_id {wildcards.query_id} --db duck &> {log}"
 
 
 rule report_source:
@@ -62,5 +64,7 @@ rule report_source:
         "data/checkpoints/loading/{source}_{query_id}/mtime.cp",
     output:
         "reports/sources/apis/{source}/{query_id}.md",
+    log:
+        str(LOGGING_PATH / "report_source_{source}_{query_id}.log"),
     shell:
-        "python -m common.report.generate_reports --only {output}"
+        "python -m common.report.generate_reports --only {output} &> {log}"

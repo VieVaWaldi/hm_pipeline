@@ -30,8 +30,10 @@ rule download_ror_dump:
         mem_mb=4000,
         runtime=30,
         cpus_per_task=2,
+    log:
+        str(LOGGING_PATH / "download_ror_dump.log"),
     shell:
-        "bash src/sources/dumps/ror/download.sh {output}"
+        "bash src/sources/dumps/ror/download.sh {output} &> {log}"
 
 
 rule load_ror_dump:
@@ -39,8 +41,10 @@ rule load_ror_dump:
         rules.download_ror_dump.output,
     output:
         DUMP_PATHS["ror_dump"]["path_duck"],
+    log:
+        str(LOGGING_PATH / "load_ror_dump.log"),
     shell:
-        "python -m sources.dumps.ror.loader"
+        "python -m sources.dumps.ror.loader &> {log}"
 
 
 MINORITIES_DIR = "src/sources/dumps/minorities"
@@ -52,8 +56,13 @@ rule discover_minorities_candidates:
     # artifact — see src/sources/dumps/minorities/README.md.
     output:
         DUMP_PATHS["minorities"]["path_raw"],
+    log:
+        str(LOGGING_PATH / "discover_minorities_candidates.log"),
     shell:
-        f"python {MINORITIES_DIR}/extract.py"
+        # {{log}} (doubled braces): this shell string is already an f-string
+        # for MINORITIES_DIR, so it must stay literal for Snakemake's own
+        # {log} substitution to see it, rather than Python eating it first.
+        f"python {MINORITIES_DIR}/extract.py &> {{log}}"
 
 
 rule load_minorities:
@@ -61,8 +70,10 @@ rule load_minorities:
         rules.discover_minorities_candidates.output,
     output:
         DUMP_PATHS["minorities"]["path_duck"],
+    log:
+        str(LOGGING_PATH / "load_minorities.log"),
     shell:
-        f"python {MINORITIES_DIR}/loader.py"
+        f"python {MINORITIES_DIR}/loader.py &> {{log}}"
 
 
 rule load_oa_topics:
@@ -72,8 +83,10 @@ rule load_oa_topics:
         DUMP_PATHS["oa_topics"]["path_raw"],
     output:
         DUMP_PATHS["oa_topics"]["path_duck"],
+    log:
+        str(LOGGING_PATH / "load_oa_topics.log"),
     shell:
-        "python -m sources.dumps.oa_topics.loader"
+        "python -m sources.dumps.oa_topics.loader &> {log}"
 
 
 rule download_openaire_dump:
@@ -85,8 +98,10 @@ rule download_openaire_dump:
         mem_mb=64000,
         runtime=4320,
         cpus_per_task=32,
+    log:
+        str(LOGGING_PATH / "download_openaire_dump.log"),
     shell:
-        "bash src/sources/dumps/openaire/download.sh {output}"
+        "bash src/sources/dumps/openaire/download.sh {output} &> {log}"
 
 
 rule load_openaire_dump:
@@ -98,11 +113,13 @@ rule load_openaire_dump:
         mem_mb=200000,
         runtime=4320,
         cpus_per_task=32,
+    log:
+        str(LOGGING_PATH / "load_openaire_dump.log"),
     shell:
         # Full load — no --limit. For a fast local test load, run
         # sources.dumps.openaire.loader --limit N directly (see
         # orchestration/README.md "Running Individually").
-        "python -m sources.dumps.openaire.loader --mem-mb {resources.mem_mb} --threads {resources.cpus_per_task}"
+        "python -m sources.dumps.openaire.loader --mem-mb {resources.mem_mb} --threads {resources.cpus_per_task} &> {log}"
 
 
 rule stage_openaire_dump:
@@ -114,8 +131,10 @@ rule stage_openaire_dump:
         mem_mb=200000,
         runtime=4320,
         cpus_per_task=32,
+    log:
+        str(LOGGING_PATH / "stage_openaire_dump.log"),
     shell:
-        "python -m sources.dumps.openaire.staging --mem-mb {resources.mem_mb} --threads {resources.cpus_per_task}"
+        "python -m sources.dumps.openaire.staging --mem-mb {resources.mem_mb} --threads {resources.cpus_per_task} &> {log}"
 
 
 # openalex_dump is corev5 scope — download rule kept for parity, not wired into `rule all`.
@@ -151,8 +170,10 @@ rule report_dump:
         lambda wc: DUMP_REPORT_INPUTS[wc.name],
     output:
         "reports/sources/dumps/{name}.md",
+    log:
+        str(LOGGING_PATH / "report_dump_{name}.log"),
     shell:
-        "python -m common.report.generate_reports --only {output}"
+        "python -m common.report.generate_reports --only {output} &> {log}"
 
 
 rule ingest_dumps:

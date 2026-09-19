@@ -34,8 +34,16 @@ workdir: str(REPO_ROOT)
 
 from common.config.api_runner import get_query_settings
 from common.config.dumps import get_dumps_paths
+from common.config.settings import get_settings
 
 QUERY_SOURCES = ["arxiv", "cordis", "coreac"]  # meta_heritage has no queries
+
+# Base dir for every rule's log: below -- same value for dev/prod (see
+# config/config.yaml) and always resolved against the repo checkout, same
+# convention as reports/. A fixed, flat path per rule (+ wildcards where
+# needed) so a log is always at a known location, overwritten each run --
+# not the old per-run-timestamped files under here from the previous logger.
+LOGGING_PATH = get_settings().logging_path
 
 
 include: "rules/api_runner/extract.smk"

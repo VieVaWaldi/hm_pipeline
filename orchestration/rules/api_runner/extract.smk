@@ -36,5 +36,7 @@ rule extract_all_sources:
 rule extract_source:
     output:
         "data/checkpoints/extractor/{source}-query_id-{query_id}/{checkpoint_name}.cp",
+    log:
+        str(LOGGING_PATH / "extract_source_{source}_{query_id}_{checkpoint_name}.log"),
     shell:
-        "python -m common.api_runner.run_extractor --source {wildcards.source} --query_id {wildcards.query_id}"
+        "python -m common.api_runner.run_extractor --source {wildcards.source} --query_id {wildcards.query_id} &> {log}"

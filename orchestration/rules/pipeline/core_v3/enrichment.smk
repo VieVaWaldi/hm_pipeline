@@ -53,5 +53,12 @@ rule dch_classification:
         rules.geolocation.output,
     output:
         touch(".snakemake/sentinels/enrichment/core_v3/dch_classification_done"),
+    resources:
+        slurm_partition="gpu-test",  # 12h limit, idle 80GB A100s; switch to "gpu" (runtime up to 4320) for long runs
+        gres="gpu:a100:1",  # single GPU: dch_classifier only uses cuda:0
+        constraint="a100_80gb",  # batch 2048 x 512 tokens is sized for 80GB VRAM
+        cpus_per_task=16,
+        mem_mb=128000,  # all_text_rows() holds every row in RAM; ample for entity=project
+        runtime=720,  # gpu-test max is 12h; resumable, ~25 min expected for ~4M rows. --entity work needs partition gpu + more
     shell:
         "uv run python -m pipelines.core_v3.enrichment.dch_classification"

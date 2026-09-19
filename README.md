@@ -26,6 +26,8 @@ cp .env.example .env
 
 # To test the entire pipeline
 uv run snakemake -n -p -s orchestration/Snakefile all
+# To limit run core_v3 transformation
+ENV=prod uv run python -m pipelines.core_v3.transformation --limit 500
 
 # Run individual dump rules with (load_minorities, load_oa_topics, load_ror_dump, load_openaire_dump)
 uv run snakemake -s orchestration/Snakefile load_ror_dump

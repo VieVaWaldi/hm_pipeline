@@ -1,0 +1,1 @@
+! These materialized views are just legacy documentation from the postgres days

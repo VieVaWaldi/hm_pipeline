@@ -1,5 +1,5 @@
 """
-CH (Cultural Heritage) classification of all projects in core_v3_final.duckdb.
+DCH (Digital Cultural Heritage) classification
 
 Uses the fine-tuned BERT model (data/models/bert_classifier/) to classify each project
 as CH or not-CH. Adds two columns to the project table:

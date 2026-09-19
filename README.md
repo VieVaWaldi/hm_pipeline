@@ -1,6 +1,23 @@
 # Heritage Monitor Pipeline
 
 A data pipeline, data model and warehouse for the [Heritage Monitor](https://heritagemonitor.org/).
+Go to [Orchestration Documentation](orchestration/README.md) for more snakemake.
+
+## Installation
+
+Default Python version is 3.14 (pinned in `.python-version`; uv downloads it automatically if
+it's not already on your machine).
+
+```bash
+# install uv, if you don't already have it
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# creates .venv/ and installs the project, including src/common, src/sources, src/enrichment, src/pipelines
+uv sync
+
+# fill in API keys, keep ENV=dev for local work
+cp .env.example .env
+```
 
 ## Orchestration
 
@@ -22,35 +39,11 @@ uv run snakemake -s orchestration/Snakefile --cores 4 extract_sources_dev  # ext
 uv run snakemake -s orchestration/Snakefile --cores 4 sources_dev          # load, then per-source reports
 
 # For PROD (HPC)
-ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm extract_core_v3_sources # extraction only
-ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v3_sources         # load, then per-source reports
+ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm extract_core_v4_sources # extraction only
+ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v4_sources         # load, then per-source reports
 
 # to just get reports for all duckdb files, or a specific one with --only <substring>
 uv run python -m common.report.generate_reports
-```
-
-Go to [Orchestration Documentation](orchestration/README.md) for more snakemake commands.
-
-## Installation
-
-Default Python version is 3.14 (pinned in `.python-version`; uv downloads it automatically if
-it's not already on your machine).
-
-```bash
-# install uv, if you don't already have it
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# creates .venv/ and installs the project, including src/common, src/sources, src/enrichment, src/pipelines
-uv sync
-
-# fill in API keys, keep ENV=dev for local work
-cp .env.example .env
-```
-
-**Installing new packages**
-
-```bash
-uv add <package>
 ```
 
 ## The Pipeline Way

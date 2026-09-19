@@ -146,7 +146,7 @@ rule download_openalex_dump:
 
 
 # Report names, {name} in report_dump below -- also referenced from the
-# Snakefile's rule all / sources_dev / core_v3_sources so the exact
+# Snakefile's rule all / sources_dev / core_v4_sources so the exact
 # reports/sources/dumps/<name>.md path only ever gets built in one place.
 REPORT_NAME_ROR_DUMP = f"ror_dump_{DUMP_PATHS['ror_dump']['version']}"
 REPORT_NAME_OPENAIRE_DUMP = f"openaire_dump_{DUMP_PATHS['openaire_dump']['version']}"

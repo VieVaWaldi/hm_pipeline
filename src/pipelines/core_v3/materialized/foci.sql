@@ -1,5 +1,7 @@
 ------------------------------
--- Foci Topic Selection
+-- Theme & Pillars
+--
+-- Needed for DIGICHer DST
 
 select * from topic 
 where topic_name = 'Wine Industry and Tourism';

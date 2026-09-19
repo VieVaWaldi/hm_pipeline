@@ -15,7 +15,7 @@ orchestration/
 │   ├── external/                   # ↔ src/sources/external/
 │   │   └── meta_heritage.smk       # postgres-backed, not core_v4 scope, own scripts
 │   └── pipeline/                   # ↔ pipeline-level code, not a source at all
-│       └── core_v3/
+│       └── core_v4/
 │           └── enrichment.smk      # legacy enrichment scripts (postgres-backed)
 ├── envs/                           # per-rule container images (empty until core_v4 rules exist)
 └── profiles/slurm/                 # SLURM executor config for HPC runs
@@ -41,7 +41,7 @@ uv run snakemake --workflow-profile orchestration/profiles/slurm all
 `all` covers incremental extraction/loading (each source's own report, via
 `report_source`) plus the versioned bulk dumps (ror_dump, openaire_dump,
 minorities, oa_topics, each via `report_dump`). It does **not** include
-`openalex_dump` (corev5 scope), `rules/pipeline/core_v3/enrichment.smk`, or
+`openalex_dump` (corev5 scope), `rules/pipeline/core_v4/enrichment.smk`, or
 `meta_heritage.smk` (all postgres-backed, run by name only) — see each rule
 file's docstring.
 
@@ -60,23 +60,23 @@ uv run snakemake -s orchestration/Snakefile --cores 4 extract_sources_dev  # ext
 uv run snakemake -s orchestration/Snakefile --cores 4 sources_dev          # extract + load + reports
 ```
 
-`core_v3_sources` / `extract_core_v3_sources` are a separate, HPC-only source
-set used to verify loader idempotency ahead of the core_v3 rebuild: cordis
+`core_v4_sources` / `extract_core_v4_sources` are a separate, HPC-only source
+set used to verify loader idempotency ahead of the core_v4 build: cordis
 restricted to its `full_projects_no_pdfs` query ("all cordis docs", no pdf
 subset) plus `ror_dump` and `openaire_dump` — no `arxiv`, no `coreac`. Sources
-only, not the core_v3 pipeline itself (see `rules/pipeline/core_v3/enrichment.smk`
+only, not the core_v4 pipeline itself (see `rules/pipeline/core_v4/enrichment.smk`
 for that, under "Running Individually" below). Unlike `sources_dev` this
 includes openaire, so run it with `--workflow-profile orchestration/profiles/slurm`.
-Both extract + load + reports are covered directly by `core_v3_sources`'s own
+Both extract + load + reports are covered directly by `core_v4_sources`'s own
 input list (via `report_source`/`report_dump`), so there's no separate
 report-chaining rule to run afterward.
 
-`core_v3_sources` only makes sense against the real `/work/lu72hip` data, so
+`core_v4_sources` only makes sense against the real `/work/lu72hip` data, so
 run it with `ENV=prod` explicitly rather than relying on `get_settings()`'s
 "dev" default:
 
 ```bash
-ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm core_v3_sources
+ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm core_v4_sources
 ```
 
 To verify idempotency (force a real rerun against already-extracted/downloaded
@@ -84,7 +84,7 @@ data instead of Snakemake skipping already-up-to-date outputs):
 
 ```bash
 ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm \
-    core_v3_sources --forcerun load_source load_ror_dump load_openaire_dump
+    core_v4_sources --forcerun load_source load_ror_dump load_openaire_dump
 ```
 
 ### Running Individually
@@ -152,6 +152,7 @@ staleness against. Delete a sentinel to force that one job to rerun.
 ## Adding pipeline-version rules
 
 Once a pipeline version has real stages (`pipelines/core_v4/{merge,analysis,
-enrichment,model,serve}`, or a rebuilt-runnable `pipelines/core_v3/`), add
-`rules/pipeline/core_vN/*.smk` for that version rather than stubbing them out
-in advance — the DAG should only describe what's actually runnable.
+enrichment,model,serve}`), add `rules/pipeline/core_vN/*.smk` for that version
+rather than stubbing them out in advance — the DAG should only describe what's
+actually runnable. `pipelines/core_v3/` is frozen reference docs only and is
+never wired into a rule file.

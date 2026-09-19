@@ -1,39 +1,43 @@
 """
 Core v3 Transformation — merges ROR and Cordis into core_v3_topics.duckdb
 
+Reference implementation only — core_v3 is frozen (see src/pipelines/core_v3/README.md),
+this is not wired into orchestration. Kept runnable as documentation of the merge
+approach for core_v4 to build on.
+
 Adds columns to existing tables (no new tables created):
   - organization: rorStatus, rorEstablished, rorTypes, rorLocations, geolocation, rorRelationships
   - relation:     cordis_ec_contribution, cordis_type
 
-See TRANSFORMATION.md for full design rationale and EDA results.
+See READ_TRANSFORMATION.md for full design rationale and EDA results.
 
 Usage:
-    cd /home/lu72hip/DIGICHer/dh_pipeline
-    python -m src.elt.core_v3.transformation
+    uv run python -m pipelines.core_v3.transformation
 
 Prerequisites:
+  - CORE_DB must already contain organization/project/work/relation tables sourced
+    from openaire staging (src/sources/dumps/openaire/staging.py) — this script only
+    adds columns, it does not seed those tables.
   - Close all notebooks/kernels that have the duckdb files open (DuckDB is single-writer).
 """
 
 import logging
-import sys
-sys.path.insert(0, '/home/lu72hip/DIGICHer/dh_pipeline/src')
-
 from datetime import datetime
 from pathlib import Path
 
 import duckdb
 
-from utils.config.config_loader import get_query_config
-from utils.logger.logger import setup_logging
-from utils.logger.timer import log_run_time
+from common.config.api_runner import get_query_settings
+from common.config.dumps import get_dumps_paths
+from common.config.pipelines import get_pipeline_paths
+from common.log.logger import setup_logging
+from common.log.timer import log_run_time
 
 setup_logging("transformation", "core_v3")
 
-config    = get_query_config()
-CORE_DB   = Path(config["core_v3"]["path_topics_duck"])
-ROR_DB    = Path(config["ror_dump"]["path_duck"])
-CORDIS_DB = Path(config["cordis"]["queries"][1]["path_duck"])
+CORE_DB   = Path(get_pipeline_paths()["core_v3"]["path_topics_duck"])
+ROR_DB    = Path(get_dumps_paths()["ror_dump"]["path_duck"])
+CORDIS_DB = Path(get_query_settings()["cordis"].queries["full_projects_no_pdfs"].path_duck)
 
 logging.info("CORE V3 TRANSFORMATION")
 logging.info(f"Target: {CORE_DB}")

@@ -11,7 +11,8 @@ rules/dumps.smk     ↔ src/sources/dumps/
 rules/external/     ↔ src/sources/external/
 rules/pipeline/     ↔ pipeline-level
 code that isn't a source at all (src/enrichment/, and eventually
-src/pipelines/core_v4/, src/pipelines/core_v3/ once it's rebuilt runnable)
+src/pipelines/core_v4/ — src/pipelines/core_v3/ is frozen reference docs only,
+not executed)
 
 Each pipeline version gets its own rules/pipeline/core_vN/ once that version has real rules,
 rather than stubbing them out in advance.
@@ -49,7 +50,7 @@ LOGGING_PATH = get_settings().logging_path
 include: "rules/api_runner/extract.smk"
 include: "rules/api_runner/load.smk"
 include: "rules/dumps.smk"
-include: "rules/pipeline/core_v3/enrichment.smk"
+include: "rules/pipeline/core_v4/enrichment.smk"
 include: "rules/external/meta_heritage.smk"
 
 
@@ -93,29 +94,29 @@ rule sources_dev:
         f"reports/sources/dumps/{REPORT_NAME_OA_TOPICS}.md",
 
 
-# core_v3_sources source set: cordis's "all cordis docs" query
+# core_v4_sources source set: cordis's "all cordis docs" query
 # (full_projects_no_pdfs, no pdf subset) plus the ror and openaire dumps. Used
-# to verify loader idempotency ahead of the core_v3 rebuild -- sources only,
-# not the core_v3 pipeline itself (see rules/pipeline/core_v3/enrichment.smk
+# to verify loader idempotency ahead of the core_v4 build -- sources only,
+# not the core_v4 pipeline itself (see rules/pipeline/core_v4/enrichment.smk
 # for that). Unlike `sources_dev` this includes openaire, so it's HPC-only
 # (run with --workflow-profile orchestration/profiles/slurm), not part of the
 # local-dev-safe set.
-CORE_V3_SOURCES_EXCLUDE = ["arxiv", "coreac"]
-CORE_V3_SOURCES_QUERY_OVERRIDES = {"cordis": ["full_projects_no_pdfs"]}
+CORE_V4_SOURCES_EXCLUDE = ["arxiv", "coreac"]
+CORE_V4_SOURCES_QUERY_OVERRIDES = {"cordis": ["full_projects_no_pdfs"]}
 
 
-rule extract_core_v3_sources:
-    """Extraction-only half of core_v3_sources."""
+rule extract_core_v4_sources:
+    """Extraction-only half of core_v4_sources."""
     input:
-        _extract_targets(exclude=CORE_V3_SOURCES_EXCLUDE, only_queries=CORE_V3_SOURCES_QUERY_OVERRIDES),
+        _extract_targets(exclude=CORE_V4_SOURCES_EXCLUDE, only_queries=CORE_V4_SOURCES_QUERY_OVERRIDES),
         rules.download_ror_dump.output,
         rules.download_openaire_dump.output,
 
 
-rule core_v3_sources:
+rule core_v4_sources:
     """Extract + load + report target: cordis (full_projects_no_pdfs only) +
-    ror_dump + openaire_dump. See extract_core_v3_sources."""
+    ror_dump + openaire_dump. See extract_core_v4_sources."""
     input:
-        _report_targets(exclude=CORE_V3_SOURCES_EXCLUDE, only_queries=CORE_V3_SOURCES_QUERY_OVERRIDES),
+        _report_targets(exclude=CORE_V4_SOURCES_EXCLUDE, only_queries=CORE_V4_SOURCES_QUERY_OVERRIDES),
         f"reports/sources/dumps/{REPORT_NAME_ROR_DUMP}.md",
         f"reports/sources/dumps/{REPORT_NAME_OPENAIRE_DUMP}.md",

@@ -1,3 +1,3 @@
-# core_v3
+# Core_v3
 
-Currently not working, will be fixed soon!
+This is not working anymore. Its kept for documentation purposes.

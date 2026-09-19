@@ -558,7 +558,8 @@ def test_org_level_pic_pass_adds_orgs_without_matched_project(tmp_path):
 # ---------------------------------------------------------------------------
 def geo_of(con):
     return {
-        i - ORG: (g, src) for i, g, src in con.execute("SELECT id, geolocation, geolocation_source FROM organization")
+        i - ORG: (g, src)
+        for i, g, src in con.execute("SELECT id, geolocation, geolocation_source FROM organization").fetchall()
     }
 
 

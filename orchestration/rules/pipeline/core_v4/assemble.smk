@@ -32,7 +32,10 @@ CORE_V4_WORKS_LINKED_TARGETS = [_core_v4_report("staging"), _core_v4_report("wor
 # everything: the linked file too, so it is there first even when only core_v4_works is asked for
 CORE_V4_WORKS_TARGETS = [*CORE_V4_WORKS_LINKED_TARGETS, _core_v4_report("works")]
 
-_CORE_V4_ASSEMBLE_RESOURCES = dict(mem_mb=CORE_V4_MEM_MB, runtime=CORE_V4_RUNTIME, cpus_per_task=CORE_V4_CPUS)
+_CORE_V4_ASSEMBLE_RESOURCES = dict(
+    slurm_partition=CORE_V4_PARTITION, mem_mb=CORE_V4_MEM_MB, runtime=CORE_V4_RUNTIME, cpus_per_task=CORE_V4_CPUS
+)
+_CORE_V4_ASSEMBLE_WORKS_RESOURCES = {**_CORE_V4_ASSEMBLE_RESOURCES, "runtime": CORE_V4_WORKS_ASSEMBLE_RUNTIME}  # the full 50M works
 
 
 rule core_v4_assemble_projects:
@@ -85,7 +88,7 @@ rule core_v4_assemble_works:
         skip=CORE_V4_ASSEMBLE_SKIP,
         skip_flag=f"--skip {CORE_V4_ASSEMBLE_SKIP}" if CORE_V4_ASSEMBLE_SKIP else "",
     resources:
-        **_CORE_V4_ASSEMBLE_RESOURCES,
+        **_CORE_V4_ASSEMBLE_WORKS_RESOURCES,
     log:
         str(LOGGING_PATH / f"core_v4_assemble_works{CORE_V4_SUFFIX}.log"),
     shell:
@@ -115,9 +118,10 @@ rule report_core_v4:
         str(LOGGING_PATH / f"report_core_v4_{{stage}}.log"),
     resources:
         # DuckDB ignores the cgroup, so the script caps itself to these (see report_core_v3).
+        slurm_partition=CORE_V4_PARTITION,
         mem_mb=128000,
         cpus_per_task=16,
-        runtime=CORE_V4_RUNTIME,
+        runtime=CORE_V4_REPORT_RUNTIME,
     shell:
         "uv run python -m common.report.generate_reports --only {output} "
         "--mem-mb {resources.mem_mb} --threads {resources.cpus_per_task} &> {log}"

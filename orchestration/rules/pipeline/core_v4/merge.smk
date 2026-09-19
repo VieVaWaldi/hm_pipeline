@@ -53,7 +53,12 @@ CORE_V4_PATHS = _core_v4_paths()
 
 CORE_V4_MEM_MB = 200000
 CORE_V4_CPUS = 32
-CORE_V4_RUNTIME = 4320
+CORE_V4_RUNTIME = 360  # minutes; a ceiling, not an estimate. A short request backfills into gaps on a busy queue (a 72 h request sat pending for over an hour)
+CORE_V4_WORKS_ASSEMBLE_RUNTIME = 720
+CORE_V4_REPORT_RUNTIME = 240
+# Comma list: Slurm starts the job on whichever partition has a fitting node first. The CPU rules need up to 200 GB, so only
+# nodes that big are ever used. The GPU rules set their own partition (gpu-test) and are not affected.
+CORE_V4_PARTITION = "fat,standard,long"
 
 CORE_V4_CORDIS_QUERY_ID = "full_projects_no_pdfs"  # same query core_v3 joins
 
@@ -70,6 +75,7 @@ rule core_v4_transformation:
         limit_flag=f"--limit {CORE_V4_LIMIT}" if CORE_V4_LIMIT else "",
         work_cap_flag=f"--work-cap {int(config['work_cap'])}" if config.get("work_cap") else "",
     resources:
+        slurm_partition=CORE_V4_PARTITION,
         mem_mb=CORE_V4_MEM_MB,
         runtime=CORE_V4_RUNTIME,
         cpus_per_task=CORE_V4_CPUS,

@@ -263,6 +263,7 @@ rule core_v4_topics_model:
         variant=CORE_V4_VARIANT,
         untranslated=CORE_V4_UNTRANSLATED_FLAG,
     resources:
+        slurm_partition=CORE_V4_PARTITION,
         mem_mb=64000,
         runtime=240,
         cpus_per_task=8,
@@ -291,6 +292,7 @@ rule core_v4_topics:
         untranslated=CORE_V4_UNTRANSLATED_FLAG,
         **_CORE_V4_UNIT_PARAMS,
     resources:
+        slurm_partition=CORE_V4_PARTITION,
         mem_mb=64000,
         runtime=1440,
         cpus_per_task=16,
@@ -322,6 +324,7 @@ rule core_v4_theme:
         variant=CORE_V4_VARIANT,
         **_CORE_V4_UNIT_PARAMS,
     resources:
+        slurm_partition=CORE_V4_PARTITION,
         mem_mb=64000,
         runtime=480,
         cpus_per_task=4,
@@ -349,6 +352,7 @@ rule core_v4_minorities:
         untranslated=CORE_V4_UNTRANSLATED_FLAG,
         **_CORE_V4_UNIT_PARAMS,
     resources:
+        slurm_partition=CORE_V4_PARTITION,
         mem_mb=64000,
         runtime=1440,
         cpus_per_task=16,
@@ -376,6 +380,7 @@ rule core_v4_pillars:
         untranslated=CORE_V4_UNTRANSLATED_FLAG,
         **_CORE_V4_UNIT_PARAMS,
     resources:
+        slurm_partition=CORE_V4_PARTITION,
         mem_mb=32000,
         runtime=720,
         cpus_per_task=4,
@@ -431,6 +436,7 @@ rule core_v4_regions:
     params:
         variant=CORE_V4_VARIANT,
     resources:
+        slurm_partition=CORE_V4_PARTITION,
         mem_mb=16000,
         runtime=120,
         cpus_per_task=4,
@@ -533,6 +539,7 @@ rule core_v4_geolocation:
         max_requests=CORE_V4_GEOLOCATION_MAX_REQUESTS,
         permanent="--permanent" if CORE_V4_GEOLOCATION_PERMANENT else "",
     resources:
+        slurm_partition=CORE_V4_PARTITION,
         mem_mb=16000,
         runtime=720,
         cpus_per_task=2,

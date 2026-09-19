@@ -456,9 +456,16 @@ def _core_v4_finish(name, unit):
     (`_SUCCESS`, or `_SUCCESS.tier0` for tier 0) once the last shard is in, with the current staging fingerprint in it.
     The format of the markers lives in side_outputs.py. Companion outputs (nllb/seen, minorities/seen) are finished with
     the main one: assemble and the text gate check nllb/seen's marker too."""
+    import time
+
     from pipelines.core_v4.enrichment.fingerprint import staging_stamp
     from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
     from pipelines.core_v4.enrichment.text_sources import open_staging
+
+    # The shard sentinels live in .snakemake/ (sub-second mtimes) while the markers land on /work, whose mtimes have
+    # whole-second resolution: a marker written within the same second as the last sentinel gets an older mtime and
+    # Snakemake aborts with a "clock skew" WorkflowError. Waiting past the next second boundary avoids it.
+    time.sleep(1.5)
 
     entity, tier, edir = _core_v4_entity(unit), _core_v4_tier(unit), CORE_V4_PATHS["enrichment_dir"]
     n = _core_v4_shards(name, unit)

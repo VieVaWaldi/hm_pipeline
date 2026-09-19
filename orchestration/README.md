@@ -15,8 +15,8 @@ orchestration/
 │   ├── external/                   # ↔ src/sources/external/
 │   │   └── meta_heritage.smk       # postgres-backed, not core_v4 scope, own scripts
 │   └── pipeline/                   # ↔ pipeline-level code, not a source at all
-│       └── core_v4/
-│           └── enrichment.smk      # legacy enrichment scripts (postgres-backed)
+│       └── core_v3/
+│           └── enrichment.smk      # duckdb-native enrichment, runs against core_v3's real data
 ├── envs/                           # per-rule container images (empty until core_v4 rules exist)
 └── profiles/slurm/                 # SLURM executor config for HPC runs
 ```
@@ -41,7 +41,7 @@ uv run snakemake --workflow-profile orchestration/profiles/slurm all
 `all` covers incremental extraction/loading (each source's own report, via
 `report_source`) plus the versioned bulk dumps (ror_dump, openaire_dump,
 minorities, oa_topics, each via `report_dump`). It does **not** include
-`openalex_dump` (corev5 scope), `rules/pipeline/core_v4/enrichment.smk`, or
+`openalex_dump` (corev5 scope), `rules/pipeline/core_v3/enrichment.smk`, or
 `meta_heritage.smk` (all postgres-backed, run by name only) — see each rule
 file's docstring.
 
@@ -64,9 +64,10 @@ uv run snakemake -s orchestration/Snakefile --cores 4 sources_dev          # ext
 set used to verify loader idempotency ahead of the core_v4 build: cordis
 restricted to its `full_projects_no_pdfs` query ("all cordis docs", no pdf
 subset) plus `ror_dump` and `openaire_dump` — no `arxiv`, no `coreac`. Sources
-only, not the core_v4 pipeline itself (see `rules/pipeline/core_v4/enrichment.smk`
-for that, under "Running Individually" below). Unlike `sources_dev` this
-includes openaire, so run it with `--workflow-profile orchestration/profiles/slurm`.
+only — enrichment (`rules/pipeline/core_v3/enrichment.smk`, see "Running
+Individually" below) runs against core_v3's already-merged data, not these raw
+sources directly. Unlike `sources_dev` this includes openaire, so run it with
+`--workflow-profile orchestration/profiles/slurm`.
 Both extract + load + reports are covered directly by `core_v4_sources`'s own
 input list (via `report_source`/`report_dump`), so there's no separate
 report-chaining rule to run afterward.
@@ -154,5 +155,7 @@ staleness against. Delete a sentinel to force that one job to rerun.
 Once a pipeline version has real stages (`pipelines/core_v4/{merge,analysis,
 enrichment,model,serve}`), add `rules/pipeline/core_vN/*.smk` for that version
 rather than stubbing them out in advance — the DAG should only describe what's
-actually runnable. `pipelines/core_v3/` is frozen reference docs only and is
-never wired into a rule file.
+actually runnable. `pipelines/core_v3/`'s data model itself is frozen (its
+`transformation.py` merge is standalone, not a rule), but its `enrichment/`
+subpackage is wired via `rules/pipeline/core_v3/enrichment.smk` — enrichment
+is prep for core_v4, proven against core_v3's real data until core_v4 exists.

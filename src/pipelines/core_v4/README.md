@@ -1,9 +1,10 @@
 # Core_v4 Strategy
 
-This document specifyes core_v4.
-(Here)[] is the ADR.
+This document specifies core_v4.
+See the [ADR](...) for more.
 
 Core_v4 builds on core_v3, because we probably made decisions there that were import for the project, but we didnt document them.
+OpenAire is reinvestigated, @UPDATE and maybe we update the import to it?
 Cordis is merged deeper and enrichment expanded. OpenSearch is served from now instead of Postgres.
 
 ## Sources:

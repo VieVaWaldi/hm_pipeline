@@ -1,15 +1,24 @@
+"""
+Seeds the OpenAlex topic taxonomy (topic + relation_topic tables) into
+core_v3's staging duckdb. Run once before topic_modelling.py.
+
+Usage:
+    uv run python -m pipelines.core_v3.enrichment.seed_topics
+"""
+
 import logging
 
 import duckdb
 import numpy as np
 import pandas as pd
 
-from elt.core_v3.model.core_orm_model import CREATE_TOPIC_SQL, CREATE_RELATION_TOPIC_SQL
-from utils.config.config_loader import get_project_root_path, get_query_config
-from utils.logger.logger import setup_logging
+from common.config.pipelines import get_pipeline_paths
+from common.file_handling.path_utils import get_project_root_path
+from common.log.logger import setup_logging
+from enrichment.topic_modelling.schema import CREATE_RELATION_TOPIC_SQL, CREATE_TOPIC_SQL
 
 
-def seed_topics(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
+def seed_topics(con: duckdb.DuckDBPyConnection, df: pd.DataFrame) -> None:
     df = df.replace({np.nan: None})
     records = [
         (
@@ -29,12 +38,10 @@ def seed_topics(con: duckdb.DuckDBPyConnection, df: pd.DataFrame):
     logging.info(f"Topics in DB: {n}")
 
 
-if __name__ == "__main__":
+def main() -> None:
     setup_logging("enrichment-topic_modelling", "seed_topics")
-    logging.info("Seeding topics into core_v3")
-
-    config = get_query_config()["core_v3"]
-    db_path = config["path_duck"]
+    db_path = get_pipeline_paths()["core_v3"]["path_staging_duck"]
+    logging.info(f"Seeding topics into {db_path}")
 
     con = duckdb.connect(db_path)
     con.execute(CREATE_TOPIC_SQL)
@@ -44,3 +51,7 @@ if __name__ == "__main__":
     logging.info(f"Loaded {len(df)} topics from CSV.")
     seed_topics(con, df)
     con.close()
+
+
+if __name__ == "__main__":
+    main()

@@ -764,15 +764,6 @@ wheels = [
 ]
 
 [[package]]
-name = "datamodels"
-version = "0.8.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f1/f6/096612993054998ab4b276bc0caa85053f551f31cc3a1f01fbd2dd8a1332/datamodels-0.8.2.tar.gz", hash = "sha256:bc60d3b8425bd7a9fcb20f7b8dbd4a067d6b99172463732733124acb743c9127", size = 5693, upload-time = "2019-12-27T01:33:19.703Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d4/0d/15cfa81ce24df475413929b552f9c084153bcea6839dea590c76fb97911a/datamodels-0.8.2-py2.py3-none-any.whl", hash = "sha256:91b1ce563fe8f6ecc50bc505c8115397fcdca188957c14b718465ec0c7eeab12", size = 12435, upload-time = "2019-12-27T01:33:17.698Z" },
-]
-
-[[package]]
 name = "debugpy"
 version = "1.8.21"
 source = { registry = "https://pypi.org/simple" }
@@ -1123,7 +1114,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "black" },
-    { name = "datamodels" },
     { name = "duckdb" },
     { name = "duckdb-engine" },
     { name = "graphviz" },
@@ -1159,7 +1149,6 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "black" },
-    { name = "datamodels" },
     { name = "duckdb" },
     { name = "duckdb-engine" },
     { name = "graphviz" },

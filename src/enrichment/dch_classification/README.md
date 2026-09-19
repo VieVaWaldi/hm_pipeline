@@ -1,70 +1,68 @@
-# CH Classification — Context for GPU Node Session
+# DCH Classification — Context for GPU Node Session
 
 ## What was built
 
-`src/enrichment/dch_classification/run_ch_classification.py`
+Split across two layers:
+- `dch_classifier.py` (here) — pure classifier (`DchClassifier`), no duckdb/table knowledge. Loads the BERT model, tokenises + runs GPU inference. Implements `enrichment.interface.Enricher[str, float]`.
+- `src/pipelines/core_v3/enrichment/dch_classification.py` — duckdb-aware glue: reads `project`/`work` rows (via `text_sources.py`), calls the classifier, writes results back, resumable. This part is pipeline-specific — core_v4 will get its own copy once it has tables.
 
-Classifies all ~4M projects in core_v3_final.duckdb as Cultural Heritage (CH) or not,
-using the fine-tuned BERT model. Adds two columns to the `project` table:
-- `is_ch  BOOLEAN` — True if P(CH) >= 0.5
-- `pred   FLOAT`   — P(CH), the raw probability (not just 0/1)
+Classifies project/work rows in core_v3's duckdb as Cultural Heritage (CH) or not, using
+the fine-tuned BERT model. Adds two columns to the target table:
+- `is_ch  BOOLEAN` — True if P(is DCH) >= 0.5
+- `pred   FLOAT`   — P(is DCH), the raw probability (not just 0/1)
 
 ## Key paths
 
 | Thing           | Path |
 |-----------------|------|
-| Script          | `src/enrichment/dch_classification/run_ch_classification.py` |
+| Classifier       | `src/enrichment/dch_classification/dch_classifier.py` |
+| Runner (duckdb glue) | `src/pipelines/core_v3/enrichment/dch_classification.py` |
 | BERT model      | `data/models/bert_classifier/` (safetensors + config.json) |
-| Tokenizer cache | `/home/lu72hip/.cache/huggingface/hub/models--bert-base-uncased` |
-| Production DB   | `/work/lu72hip/data/duckdb/core/core_v3_final.duckdb` (NOT ready yet) |
-| Staging DB      | `/work/lu72hip/data/duckdb/core/core_v3.duckdb` (use for tests) |
-| Config          | `config/config_queries.json` → `core_v3.path_final_duck` / `path_staging_duck` |
+| Tokenizer cache | `~/.cache/huggingface/hub/models--bert-base-uncased` (HPC: under the job user's home) |
+| Target DB       | core_v3's `path_staging_duck` (see `config/pipelines.yaml`) — the runner reads this from config, not a CLI flag |
 
 ## How to run
 
-Activate env first:
 ```bash
-cd /home/lu72hip/DIGICHer/dh_pipeline
-source venv/bin/activate
-export PYTHONPATH=/home/lu72hip/DIGICHer/dh_pipeline/src
-```
+# dry-run: N rows, no DB writes, prints throughput
+uv run python -m pipelines.core_v3.enrichment.dch_classification --test 5
 
-**Temp test (no writes, uses staging DB, 5 batches):**
-```bash
-python src/enrichment/dch_classification/run_ch_classification.py --test 5
-```
-This reads from `path_staging_duck`, runs 5 × 2048-batch inference passes, prints seq/s
-and extrapolated time for 4M rows. Writes nothing to any DB.
+# production: classifies all remaining project rows, resumable
+uv run python -m pipelines.core_v3.enrichment.dch_classification
+uv run python -m pipelines.core_v3.enrichment.dch_classification --entity work
 
-**Production (when final duck is ready):**
-```bash
-python src/enrichment/dch_classification/run_ch_classification.py
+# or via Snakemake:
+uv run snakemake -s orchestration/Snakefile dch_classification
 ```
 
 ## Design decisions to remember
 
-- `--test N` flag → uses `path_staging_duck`, no DB writes, N batches only
-- Production → uses `path_final_duck`, adds columns, resume-safe via `COUNT(*) WHERE is_ch IS NOT NULL`
+- `--test N` → N rows, no DB writes, prints throughput and extrapolated time for 4M rows
+- Production → adds `is_ch`/`pred` columns, resume-safe via `COUNT(*) WHERE is_ch IS NOT NULL` + a
+  binary results-file row count (see `dch_classification.py`'s `_results_row_count`) — a crash
+  mid-run loses at most one chunk (`CHUNK_ROWS` = 20 × batch size) of GPU compute, not the whole job
 - Text input: `CONCAT_WS(' ', title, keywords, list_aggregate(subjects, 'string_agg', ' '), summary)`
   - `subjects` is `list<varchar>` in the project table — use `list_aggregate`, not direct concat
-- Prefetch queue (depth 4): background thread reads DB + tokenises while main thread runs GPU
-- Separate read-only DuckDB connection in producer thread to avoid write-lock conflict
+- Prefetch queue (depth 4, inside `DchClassifier.enrich`): background thread tokenises while main
+  thread runs GPU inference
+- Read connection is closed before any writing happens (`run_classification` loads everything into
+  memory up front via `text_sources.all_text_rows`) — avoids a DuckDB write-lock conflict
 - AMP: bf16 on Ampere+, fp16 fallback; softmax cast to fp32 outside autocast for stability
-- `torch.compile` attempted at startup — first batch slow (~30s), subsequent batches 20-40% faster
+- Eager mode, no `torch.compile` — batch size (2048 by default) is sized for eager mode's FFN
+  intermediate memory footprint; raising `DEFAULT_BATCH_SIZE` may need `torch.compile` to stay
+  cheap on VRAM, hasn't been tried
 - Batch size: 2048. On 80GB A100/H100 this is safe. Can go higher if VRAM allows.
 
-## What to check in the test run
+## What to check in a test run
 
-1. Query works — no error on `list_aggregate(subjects, ...)` (subjects might be NULL or empty list in staging)
+1. Query works — no error on `list_aggregate(subjects, ...)` (subjects might be NULL or empty list)
 2. Tokenizer loads from cache (no internet needed on GPU node)
 3. Model loads and moves to CUDA without OOM
-4. torch.compile succeeds (if it fails, it gracefully falls back — check the log)
-5. Throughput reported at end: should be 2,000–5,000 seq/s on A100 80GB → ~15-25 min for 4M rows
-6. Sample predictions look sane (mix of CH and NOT CH, not all one class)
+4. Throughput reported at end: should be 2,000–5,000 seq/s on A100 80GB → ~15-25 min for 4M rows
+5. Sample predictions look sane (mix of CH and NOT CH, not all one class)
 
 ## If something breaks
 
-- `list_aggregate` error → subjects might be a different type in staging; try replacing with just `summary` in the query
-- Tokenizer not found → `BertTokenizerFast.from_pretrained("/home/lu72hip/.cache/huggingface/hub/models--bert-base-uncased")`
-- torch.compile fails → already handled with try/except, just continues without it
-- OOM → reduce `BATCH_SIZE` at top of script (try 256)
+- `list_aggregate` error → subjects might be a different type in the target DB; try replacing with just `summary` in the query
+- Tokenizer not found → check the HF cache path on that node, or let it fetch from the internet once
+- OOM → reduce `DEFAULT_BATCH_SIZE` in `dch_classifier.py` (try 256)

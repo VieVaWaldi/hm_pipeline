@@ -155,7 +155,7 @@ src/
 │   │   ├── enrichment/  # gold — orchestrates ordered calls into enrichment/
 │   │   ├── model/       # gold — derived entities (collaboration, etc.) → canon core_v4
 │   │   └── serve/       # → denormalized OpenSearch indices
-│   └── core_v3/         # frozen reference docs only, not executed
+│   └── core_v3/         # frozen data model, but transformation.py + enrichment/ are real and runnable
 ├── common/           # pydantic-settings config, db clients, file handling, requests, sanitizers
 │   ├── api_runner/   # run_extractor.py/run_loader.py (IExtractor/ILoader defined in-file) + checkpoint_manager — only for sources/apis/
 │   └── report/       # per-duckdb markdown data-profile reports, mirrors sources/pipelines under reports/

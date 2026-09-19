@@ -9,8 +9,9 @@ Pipeline per call:
   1. truncate each text (`max_chars`; descriptions can be 5.18M characters), lower-case ALL-CAPS ones,
   2. split into sentences, pack sentences into chunks of <= `max_chunk_tokens` (~200) sentencepiece
      tokens (a single longer sentence is cut on token boundaries),
-  3. sort the chunks by length and translate in token-budget batches (grouped by source language by
-     default; the language is a prefix token, so batches may also mix languages: `group_by_language`),
+  3. sort the chunks by length and translate in token-budget batches. The source language is only a
+     prefix token, so one batch may mix languages (default: fuller batches, +7% tokens/s at 20k texts and
+     much more at small call sizes); `group_by_language=True` groups the chunks per language instead,
   4. re-assemble the translated chunks of each text in order.
 
 Two backends behind the same interface: CTranslate2 (fast, float16/int8) and Hugging Face
@@ -211,7 +212,7 @@ class NllbTranslator:
         max_chars: int = DEFAULT_MAX_CHARS,
         batch_tokens: int = DEFAULT_BATCH_TOKENS,
         beam_size: int = DEFAULT_BEAM_SIZE,
-        group_by_language: bool = True,
+        group_by_language: bool = False,
         inter_threads: int = 1,
     ):
         if model not in NLLB_REPOS:
@@ -260,7 +261,7 @@ class NllbTranslator:
         translated: List[List[Optional[str]]] = [[None] * len(c) for c in per_text]
         n_chunks = n_tokens = 0
         # The source language is only a prefix token per sequence, so one batch may mix languages;
-        # grouping by language (the default) keeps batches homogeneous, ungrouped fills them better.
+        # grouping by language keeps batches homogeneous, ungrouped (the default) fills them better.
         groups = list(by_lang.items()) if self.group_by_language else [("*", [it for v in by_lang.values() for it in v])]
         for _, items in groups:
             items.sort(key=lambda it: len(it[2]), reverse=True)  # longest first: minimal padding, OOM early

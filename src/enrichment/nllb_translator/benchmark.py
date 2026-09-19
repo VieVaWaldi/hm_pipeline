@@ -151,12 +151,12 @@ def stage_speed(args) -> dict:
     examples = {"source": [texts[i][:300] for i in examples_idx], "lang": [langs[i] for i in examples_idx]}
     for model in args.models:
         for backend in args.backends:
-            run = {"model": model, "backend": backend, "quantization": args.quantization, "beam_size": args.beam_size, "batch_tokens": args.batch_tokens, "grouped_by_language": not args.ungrouped, "inter_threads": args.inter_threads}
+            run = {"model": model, "backend": backend, "quantization": args.quantization, "beam_size": args.beam_size, "batch_tokens": args.batch_tokens, "grouped_by_language": args.grouped, "inter_threads": args.inter_threads}
             try:
                 poller = _VramPoller()
                 poller.start()
                 t0 = time.perf_counter()
-                tr = NllbTranslator(model, backend=backend, quantization=args.quantization, beam_size=args.beam_size, batch_tokens=args.batch_tokens, group_by_language=not args.ungrouped, **({'inter_threads': args.inter_threads} if backend == 'ctranslate2' else {}))
+                tr = NllbTranslator(model, backend=backend, quantization=args.quantization, beam_size=args.beam_size, batch_tokens=args.batch_tokens, group_by_language=args.grouped, **({'inter_threads': args.inter_threads} if backend == 'ctranslate2' else {}))
                 run["load_seconds"] = round(time.perf_counter() - t0, 1)
                 tr.translate(texts[:32], langs[:32])  # warm-up (CUDA kernels, allocator)
                 tr.stats = TranslationStats()
@@ -216,7 +216,7 @@ def main() -> None:
     parser.add_argument("--batch-tokens", type=int, default=32768)
     parser.add_argument("--dump", default=None, help="write every translation to this jsonl")
     parser.add_argument("--inter-threads", type=int, default=1, help="CTranslate2 parallel batches on one GPU")
-    parser.add_argument("--ungrouped", action="store_true", help="mix source languages within a batch")
+    parser.add_argument("--grouped", action="store_true", help="one batch per source language (default: mixed)")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     result = stage_lid(args) if args.stage == "lid" else stage_speed(args)

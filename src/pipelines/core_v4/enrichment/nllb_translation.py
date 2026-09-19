@@ -89,11 +89,14 @@ def process_rows(
     lid,
     translator,
     min_prob: float = DEFAULT_MIN_PROB,
+    timings: Optional[Dict[str, float]] = None,
 ) -> Tuple[List[dict], List[dict]]:
     """LID + translation of one batch of (id, field, text). Returns (nllb rows, seen rows).
 
     `lid` needs .predict(text) -> (label|None, prob); `translator` needs .supported_languages and
     .translate(texts, src_langs) -> list[str]. Both are injected so this is testable without models."""
+    timings = timings if timings is not None else {}
+    t_lid = time.perf_counter()
     nllb: List[dict] = []
     seen: List[dict] = []
     todo: List[Tuple[int, str, str, str]] = []  # (id, field, text, lang)
@@ -105,8 +108,11 @@ def process_rows(
             todo.append((id_, field, text, label))
         else:
             seen.append({"id": id_, "field": field, "src_lang": label, "translated": False})
+    timings["lid"] = timings.get("lid", 0.0) + time.perf_counter() - t_lid
     if todo:
+        t_tr = time.perf_counter()
         outs = translator.translate([t[2] for t in todo], [t[3] for t in todo])
+        timings["translate"] = timings.get("translate", 0.0) + time.perf_counter() - t_tr
         for (id_, field, text, lang), out in zip(todo, outs):
             ok = bool(out.strip()) and not _hallucinated(text, out)
             seen.append({"id": id_, "field": field, "src_lang": lang, "translated": ok})
@@ -143,11 +149,12 @@ def run_entity(
         nllb_out.begin()
         seen_out.begin()
     counters = {"rows": 0, "fields_seen": 0, "translated": 0}
+    timings: Dict[str, float] = {}
     start = time.perf_counter()
     for batch in field_batches(
         con, entity, fields, batch_size=chunk_rows, shard=shard, exclude_ids_sql=seen_out.done_ids_sql(), limit=limit
     ):
-        nllb_rows, seen_rows = process_rows(_batch_to_rows(batch, fields), lid, translator, min_prob)
+        nllb_rows, seen_rows = process_rows(_batch_to_rows(batch, fields), lid, translator, min_prob, timings)
         counters["rows"] += batch.num_rows
         counters["fields_seen"] += len(seen_rows)
         counters["translated"] += sum(1 for r in seen_rows if r["translated"])
@@ -161,7 +168,8 @@ def run_entity(
         elapsed = time.perf_counter() - start
         logging.info(
             f"[{entity}] {counters['rows']:,} rows, {counters['translated']:,} fields translated, "
-            f"{counters['rows'] / elapsed:.0f} rows/s"
+            f"{counters['rows'] / elapsed:.0f} rows/s (LID {timings.get('lid', 0):.0f}s, "
+            f"translate {timings.get('translate', 0):.0f}s of {elapsed:.0f}s)"
         )
     if not dry_run and limit is None:
         nllb_out.finish()
@@ -181,7 +189,7 @@ def main(argv: Optional[list] = None) -> None:
     parser.add_argument("--beam-size", type=int, default=DEFAULT_BEAM_SIZE)
     parser.add_argument("--batch-tokens", type=int, default=DEFAULT_BATCH_TOKENS, help="source tokens per translate batch")
     parser.add_argument("--inter-threads", type=int, default=1, help="CTranslate2 parallel batches on one GPU")
-    parser.add_argument("--ungrouped", action="store_true", help="mix source languages within a batch (default: group by language)")
+    parser.add_argument("--group-by-language", action="store_true", help="one homogeneous batch per source language (default: mixed batches, fuller)")
     parser.add_argument("--fields", nargs="+", default=None, help="text fields to translate (default: title + summary/description)")
     parser.add_argument("--chunk-rows", type=int, default=CHUNK_ROWS)
     args = parser.parse_args(argv)
@@ -191,7 +199,7 @@ def main(argv: Optional[list] = None) -> None:
     lid = LanguageIdentifier()
     translator = NllbTranslator(
         args.model, backend=args.backend, device=args.device, quantization=args.quantization, max_chars=args.max_chars,
-        beam_size=args.beam_size, batch_tokens=args.batch_tokens, group_by_language=not args.ungrouped,
+        beam_size=args.beam_size, batch_tokens=args.batch_tokens, group_by_language=args.group_by_language,
         **({"inter_threads": args.inter_threads} if args.backend == "ctranslate2" else {}),
     )
     con = open_staging(cfg.db)

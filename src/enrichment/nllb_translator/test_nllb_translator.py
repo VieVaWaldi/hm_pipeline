@@ -62,7 +62,7 @@ def make_translator(max_chunk_tokens=200):
     tr = NllbTranslator.__new__(NllbTranslator)
     from enrichment.nllb_translator.translator import TranslationStats, _Tokenizer
 
-    tr.model_key, tr.max_chunk_tokens, tr.max_chars, tr.group_by_language = "600M", max_chunk_tokens, 1500, True
+    tr.model_key, tr.max_chunk_tokens, tr.max_chars, tr.group_by_language = "600M", max_chunk_tokens, 1500, False
     tr.tokenizer = _Tokenizer("600M")
     tr.backend = FakeBackend()
     tr.supported_languages = {"deu_Latn", "fra_Latn"}
@@ -92,6 +92,7 @@ def test_single_unpunctuated_run_is_cut_on_tokens():
 @needs_models
 def test_groups_by_language_and_keeps_alignment():
     tr = make_translator()
+    tr.group_by_language = True
     out = tr.translate(["Ein Satz.", "Une phrase.", "Noch ein Satz."], ["deu_Latn", "fra_Latn", "deu_Latn"])
     assert sorted(c[0][0] for c in tr.backend.calls) == ["deu_Latn", "fra_Latn"]
     assert len(tr.backend.calls) == 2  # one homogeneous batch per language
@@ -125,9 +126,8 @@ def test_lid_real_model():
 
 
 @needs_models
-def test_ungrouped_mixes_languages_in_one_batch():
+def test_default_mixes_languages_in_one_batch():
     tr = make_translator()
-    tr.group_by_language = False
     out = tr.translate(["Ein Satz.", "Une phrase.", "Noch ein Satz."], ["deu_Latn", "fra_Latn", "deu_Latn"])
     assert len(tr.backend.calls) == 1 and tr.backend.calls[0][0] == ["deu_Latn", "fra_Latn"]
     assert "Une phrase" in out[1] and "Noch ein Satz" in out[2]

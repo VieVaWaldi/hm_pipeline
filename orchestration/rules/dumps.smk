@@ -172,6 +172,14 @@ DUMP_REPORT_INPUTS = {
 
 # One rule, one job per distinct {name} requested -- not one job that builds
 # every report at once (same as load_source's per-source/query_id jobs).
+# The openaire duckdbs are 370-400 GB, the rest are small. DuckDB ignores the
+# SLURM cgroup, so generate_reports caps itself to the --mem-mb/--threads passed
+# below; without that the buffer pool outgrows the allocation and the job is
+# OOM-killed. runtime is set explicitly because the profile default lands as a
+# 48 min SLURM limit.
+LARGE_DUMP_REPORTS = {REPORT_NAME_OPENAIRE_DUMP, REPORT_NAME_OPENAIRE_DUMP_STAGING}
+
+
 rule report_dump:
     input:
         lambda wc: DUMP_REPORT_INPUTS[wc.name],
@@ -179,8 +187,13 @@ rule report_dump:
         "reports/sources/dumps/{name}.md",
     log:
         str(LOGGING_PATH / "report_dump_{name}.log"),
+    resources:
+        mem_mb=lambda wc: 128000 if wc.name in LARGE_DUMP_REPORTS else 16000,
+        cpus_per_task=lambda wc: 16 if wc.name in LARGE_DUMP_REPORTS else 4,
+        runtime=lambda wc: 4320 if wc.name in LARGE_DUMP_REPORTS else 120,
     shell:
-        "python -m common.report.generate_reports --only {output} &> {log}"
+        "python -m common.report.generate_reports --only {output} "
+        "--mem-mb {resources.mem_mb} --threads {resources.cpus_per_task} &> {log}"
 
 
 rule ingest_dumps:

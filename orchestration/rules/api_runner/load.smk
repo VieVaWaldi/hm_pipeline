@@ -66,5 +66,12 @@ rule report_source:
         "reports/sources/apis/{source}/{query_id}.md",
     log:
         str(LOGGING_PATH / "report_source_{source}_{query_id}.log"),
+    resources:
+        # api duckdbs are small (~GB); the caps are so DuckDB respects this allocation
+        # rather than the node's RAM, and runtime avoids the 48 min profile default.
+        mem_mb=32000,
+        cpus_per_task=8,
+        runtime=240,
     shell:
-        "python -m common.report.generate_reports --only {output} &> {log}"
+        "python -m common.report.generate_reports --only {output} "
+        "--mem-mb {resources.mem_mb} --threads {resources.cpus_per_task} &> {log}"

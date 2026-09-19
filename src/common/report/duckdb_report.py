@@ -5,11 +5,15 @@ non-null count and a sample value. Read-only, no writes to the file.
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Optional
 
 import duckdb
 
 _ARRAY_TYPE_RE = re.compile(r"\[\d*\]$")
+
+# Share of the job's mem_mb given to DuckDB's buffer manager; the rest is left
+# for the python process and the OS.
+DUCKDB_MEM_FRACTION = 0.8
 
 
 def _is_array_type(type_str: str) -> bool:
@@ -45,9 +49,22 @@ class DatabaseReport:
     tables: List[TableReport] = field(default_factory=list)
 
 
-def build_database_report(name: str, path: Path) -> DatabaseReport:
+def build_database_report(
+    name: str,
+    path: Path,
+    mem_mb: Optional[int] = None,
+    threads: Optional[int] = None,
+) -> DatabaseReport:
+    """mem_mb / threads: the SLURM allocation of the calling job. DuckDB ignores
+    cgroup limits and defaults to ~80% of the *node's* RAM and every core, so on a
+    hundreds-of-GB file its buffer pool grows past the allocation and the job is
+    OOM-killed. Leave both None outside SLURM to keep DuckDB's defaults."""
     con = duckdb.connect(str(path), read_only=True)
     try:
+        if mem_mb:
+            con.execute(f"SET memory_limit='{int(mem_mb * DUCKDB_MEM_FRACTION)}MB'")
+        if threads:
+            con.execute(f"SET threads={threads}")
         table_names = [row[0] for row in con.execute("SHOW TABLES").fetchall()]
         tables = [_build_table_report(con, table) for table in table_names]
     finally:

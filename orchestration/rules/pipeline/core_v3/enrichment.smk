@@ -115,5 +115,12 @@ rule report_core_v3:
         "reports/pipelines/core_v3/{stage}.md",
     log:
         str(LOGGING_PATH / "report_core_v3_{stage}.log"),
+    resources:
+        # ~350 GB duckdbs: DuckDB ignores the cgroup, so the script caps itself to these
+        # (default 64 GB / 6 CPUs OOM-killed it).
+        mem_mb=128000,
+        cpus_per_task=16,
+        runtime=CORE_V3_RUNTIME,  # profile default lands as a 48 min SLURM limit; a full scan of 350 GB won't fit
     shell:
-        "uv run python -m common.report.generate_reports --only {output} &> {log}"
+        "uv run python -m common.report.generate_reports --only {output} "
+        "--mem-mb {resources.mem_mb} --threads {resources.cpus_per_task} &> {log}"

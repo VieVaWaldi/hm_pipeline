@@ -70,7 +70,11 @@ def _iter_pipelines() -> Iterator[Tuple[Path, Path]]:
         yield duck_path, REPORTS_ROOT / "pipelines" / name / f"{stage}.md"
 
 
-def generate_all_reports(only: Optional[str] = None) -> None:
+def generate_all_reports(
+    only: Optional[str] = None,
+    mem_mb: Optional[int] = None,
+    threads: Optional[int] = None,
+) -> None:
     for duck_path, out_path in [*_iter_dumps(), *_iter_apis(), *_iter_pipelines()]:
         if only and only not in str(out_path):
             continue
@@ -80,7 +84,7 @@ def generate_all_reports(only: Optional[str] = None) -> None:
 
         size_gb = duck_path.stat().st_size / (1024**3)
         logging.info(f"Building report for {duck_path} ({size_gb:.1f} GB) ...")
-        report = build_database_report(name=out_path.stem, path=duck_path)
+        report = build_database_report(name=out_path.stem, path=duck_path, mem_mb=mem_mb, threads=threads)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(render_database_report(report))
         logging.info(f"Wrote {out_path}")
@@ -93,7 +97,18 @@ if __name__ == "__main__":
         help="Only regenerate reports whose output path contains this substring "
         "(e.g. --only ror, --only pipelines/core_v3)",
     )
+    parser.add_argument(
+        "--mem-mb",
+        type=int,
+        help="SLURM mem_mb of this job; caps DuckDB's memory_limit (see build_database_report). "
+        "Omit outside SLURM.",
+    )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        help="SLURM cpus_per_task of this job; caps DuckDB's threads. Omit outside SLURM.",
+    )
     args = parser.parse_args()
 
     setup_logging("report", "generate_reports")
-    generate_all_reports(only=args.only)
+    generate_all_reports(only=args.only, mem_mb=args.mem_mb, threads=args.threads)

@@ -28,6 +28,7 @@ dependencies = [
     "python-dateutil",
     "python-dotenv",
     "pyyaml",
+    "sacrebleu>=2.6.0",
     "scikit-learn",
     "selenium",
     "sentencepiece>=0.2.2",

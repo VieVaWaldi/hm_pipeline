@@ -173,6 +173,10 @@ def stage_speed(args) -> dict:
                 poller.stop.set()
                 run["peak_vram_mb_incl_model"] = poller.peak - (poller.baseline or 0)
                 examples[f"{model}/{backend}"] = [out[i][:300] for i in examples_idx]
+                if args.dump:  # all outputs, for chrF against a reference configuration (score_outputs.py)
+                    dump = Path(args.dump)
+                    dump.parent.mkdir(parents=True, exist_ok=True)
+                    dump.write_text("\n".join(json.dumps({"lang": l, "src": t, "out": o}, ensure_ascii=False) for t, l, o in zip(texts, langs, out)))
                 del tr
             except Exception as e:  # e.g. CTranslate2 vs the driver: record it, keep going
                 run["error"] = repr(e)
@@ -210,6 +214,7 @@ def main() -> None:
     parser.add_argument("--n-texts", type=int, default=3000)
     parser.add_argument("--beam-size", type=int, default=2)
     parser.add_argument("--batch-tokens", type=int, default=8192)
+    parser.add_argument("--dump", default=None, help="write every translation to this jsonl")
     parser.add_argument("--inter-threads", type=int, default=1, help="CTranslate2 parallel batches on one GPU")
     parser.add_argument("--ungrouped", action="store_true", help="mix source languages within a batch")
     args = parser.parse_args()

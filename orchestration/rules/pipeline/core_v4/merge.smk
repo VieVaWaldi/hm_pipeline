@@ -45,6 +45,7 @@ def _core_v4_paths():
         "projects": duck(f"path_duck_projects{sfx}", f"{CORE_V4_PIPELINE}_projects"),
         "works": duck(f"path_duck_works{sfx}", f"{CORE_V4_PIPELINE}_works"),
         "works_linked": duck(f"path_duck_works_linked{sfx}", f"{CORE_V4_PIPELINE}_works_linked"),
+        "works_base": duck(f"path_duck_works_base{sfx}", f"{CORE_V4_PIPELINE}_works_base"),
         "enrichment_dir": cfg[f"path_enrichment_dir{sfx}"].rstrip("/"),
     }
 

@@ -9,6 +9,7 @@ core_v4:
   path_duck_projects: data/duckdb/core/core_v4_projects.duckdb # assemble: project-side subset of path_duck
   path_duck_works: data/duckdb/core/core_v4_works.duckdb       # assemble: work-side subset of path_duck
   path_duck_works_linked: data/duckdb/core/core_v4_works_linked.duckdb  # assemble --tier 0: project-linked works only (subset of works)
+  path_duck_works_base: data/duckdb/core/core_v4_works_base.duckdb      # assemble --entity work with ALL work enrichments skipped (works + relations, no NLLB/topics/...): usable for indexing long before the enrichments finish
   path_enrichment_dir: data/enrichment/core_v4/                # side parquet outputs, one dir per enrichment
   path_cache_dir: data/cache/                                  # persistent (e.g. mapbox.duckdb); teardown never deletes
   work_cap: "50000000"                                         # transformation keeps at most this many works (string: not a path_ key)
@@ -22,6 +23,7 @@ core_v4_limit:
   path_duck_projects_limit: data/duckdb/core/core_v4_limit_projects.duckdb
   path_duck_works_limit: data/duckdb/core/core_v4_limit_works.duckdb
   path_duck_works_linked_limit: data/duckdb/core/core_v4_limit_works_linked.duckdb
+  path_duck_works_base_limit: data/duckdb/core/core_v4_limit_works_base.duckdb
   path_enrichment_dir_limit: data/enrichment/core_v4_limit/
   path_cache_dir_limit: data/cache/
   path_core_v2_geolocations: data/pile/core_v2_geolocation/core_v2_geolocations.duckdb  # input, same file as core_v4

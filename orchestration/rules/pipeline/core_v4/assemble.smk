@@ -20,7 +20,7 @@ pipeline, label = key minus "path_duck"), so config/pipelines.yaml must carry th
 path_duck_projects / path_duck_works_linked / path_duck_works keys (and their *_limit twins) for the reports to be generated.
 """
 
-CORE_V4_REPORT_STAGES = [f"{stage}{CORE_V4_SUFFIX}" for stage in ("staging", "projects", "works_linked", "works")]
+CORE_V4_REPORT_STAGES = [f"{stage}{CORE_V4_SUFFIX}" for stage in ("staging", "projects", "works_linked", "works", "works_base")]
 
 
 def _core_v4_report(stage):
@@ -31,6 +31,9 @@ CORE_V4_PROJECTS_TARGETS = [_core_v4_report("staging"), _core_v4_report("project
 CORE_V4_WORKS_LINKED_TARGETS = [_core_v4_report("staging"), _core_v4_report("works_linked")]
 # everything: the linked file too, so it is there first even when only core_v4_works is asked for
 CORE_V4_WORKS_TARGETS = [*CORE_V4_WORKS_LINKED_TARGETS, _core_v4_report("works")]
+CORE_V4_WORKS_BASE_TARGETS = [_core_v4_report("staging"), _core_v4_report("works_base")]
+# everything an index build needs: the enriched projects file + all works and relations without work enrichments
+CORE_V4_BASE_TARGETS = [*CORE_V4_PROJECTS_TARGETS, _core_v4_report("works_base")]
 
 _CORE_V4_ASSEMBLE_RESOURCES = dict(
     slurm_partition=CORE_V4_PARTITION, mem_mb=CORE_V4_MEM_MB, runtime=CORE_V4_RUNTIME, cpus_per_task=CORE_V4_CPUS
@@ -96,6 +99,28 @@ rule core_v4_assemble_works:
         "--mem-mb {resources.mem_mb} --threads {resources.cpus_per_task} &> {log}"
 
 
+rule core_v4_assemble_works_base:
+    # ALL works (the trimmed 50M) and their relations with every work enrichment skipped: the columns exist with their
+    # defaults (is_translated false, is_ch NULL, minority_qid [], pillars 0, theme NULL) and relation_topic is empty. Needs
+    # nothing but the transformation, so it runs right after it, in parallel with the enrichments, and together with
+    # core_v4_projects (enriched projects, organizations, project<->org relations) it is everything an index build needs
+    # (ATTACH both files). Superseded by core_v4_works once the work enrichments are done.
+    input:
+        CORE_V4_PATHS["staging"],
+    output:
+        CORE_V4_PATHS["works_base"],
+    params:
+        variant=CORE_V4_VARIANT,
+        skip="nllb,topics,theme,dch,minorities,pillars",
+    resources:
+        **_CORE_V4_ASSEMBLE_WORKS_RESOURCES,
+    log:
+        str(LOGGING_PATH / f"core_v4_assemble_works_base{CORE_V4_SUFFIX}.log"),
+    shell:
+        "uv run python -m pipelines.core_v4.assemble --entity work --variant {params.variant} --skip {params.skip} "
+        "--out {output} --mem-mb {resources.mem_mb} --threads {resources.cpus_per_task} &> {log}"
+
+
 def _core_v4_report_input(wildcards):
     stage = wildcards.stage.removesuffix(CORE_V4_SUFFIX)
     return {
@@ -103,6 +128,7 @@ def _core_v4_report_input(wildcards):
         "projects": rules.core_v4_assemble_projects.output,
         "works_linked": rules.core_v4_assemble_works_linked.output,
         "works": rules.core_v4_assemble_works.output,
+        "works_base": rules.core_v4_assemble_works_base.output,
     }[stage]
 
 

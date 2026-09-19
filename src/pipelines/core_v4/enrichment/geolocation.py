@@ -2,6 +2,8 @@
 Fills in coordinates for organizations that still have none after ROR and Cordis. Duckdb-aware glue
 around GeolocationEnricher (src/enrichment/geolocation/geocoder.py); writes the `geolocation` side
 output (id, lat, lon, geolocation_source, confidence), never the staging duckdb.
+geolocation_source is "mapbox" (fetched permanent) or "mapbox_temporary"; confidence is
+exact | high | medium, or "street" (street-only match whose city was verified).
 
 Tiers: ROR, then Cordis, then Mapbox. ROR and Cordis coordinates already arrive in the staging
 table with geolocation_source set (there is no fuzzy ROR tier), so this step only handles orgs with
@@ -18,6 +20,8 @@ Usage:
     uv run python -m pipelines.core_v4.enrichment.geolocation --dry-run              # count + est. cost
     uv run python -m pipelines.core_v4.enrichment.geolocation --max-requests 20000   # temporary geocoding, free tier
     uv run python -m pipelines.core_v4.enrichment.geolocation --max-requests 20000 --permanent   # $5/1,000
+    uv run python -m pipelines.core_v4.enrichment.geolocation --dry-run --permanent --refresh-temporary
+        # later backfill: re-requests only cached temporary hits; the side output is rewritten
     uv run python -m pipelines.core_v4.enrichment.geolocation --test 50              # no HTTP, no writes
 """
 
@@ -89,9 +93,9 @@ def estimate(con: duckdb.DuckDBPyConnection, enricher: GeolocationEnricher, sql:
         total.eligible += len(queries)
         fresh = {query_key(q): q for q in queries if query_key(q) not in seen_keys}
         seen_keys.update(fresh)
-        cached = enricher.cache.get_many(list(fresh))
-        total.cached += len(cached)
-        pending += len(fresh) - len(cached)
+        _, todo = enricher.plan(list(fresh))  # only rows that would really be requested
+        total.cached += len(fresh) - len(todo)
+        pending += len(todo)
     total.unique = len(seen_keys)
     total.to_request = pending
     total.cost_usd = estimate_cost_usd(pending, enricher.permanent)
@@ -107,9 +111,12 @@ def run(
     write: bool = True,
 ) -> None:
     register_country_macro(con)
-    sql = candidates_sql(out.shard, out.done_ids_sql() if write else None, limit)
+    # a refresh rewrites the whole side output: orgs already written as temporary must be redone, and
+    # rows that are not re-requested (budget) fall back to their cached answer, so nothing is lost
+    refresh = enricher.permanent and enricher.refresh_temporary
+    sql = candidates_sql(out.shard, out.done_ids_sql() if write and not refresh else None, limit)
     if write:
-        out.begin()
+        out.begin(reset=refresh)
     written = 0
     for batch in _batches(con, sql):
         results = enricher.enrich(_queries(batch))
@@ -147,12 +154,19 @@ def main() -> None:
     add_common_args(parser, text=False, entities=False)
     parser.add_argument("--max-requests", type=int, default=0, help="hard cap on billed Mapbox queries ($5/1,000); 0 = never spend")
     parser.add_argument("--permanent", action="store_true", help="permanent geocoding ($5/1,000, results storable); default temporary (free tier)")
+    parser.add_argument(
+        "--refresh-temporary",
+        action="store_true",
+        help="with --permanent: re-request cached temporary hits (billed as permanent), rewrite the side output",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print the number of queries and the estimated cost, send nothing")
     args = parser.parse_args()
 
     setup_logging("core_v4-geolocation", "run")
     get_settings()  # loads .env (API_KEY_MAPBOX)
     res = resolve(args)
+    if args.refresh_temporary and not args.permanent:
+        raise SystemExit("--refresh-temporary only makes sense with --permanent")
     if res.shard.count != 1:
         raise SystemExit("geolocation shares one single-writer cache file: run it unsharded")
 
@@ -163,15 +177,17 @@ def main() -> None:
     enricher = GeolocationEnricher(
         max_requests=0 if res.dry_run else args.max_requests,
         permanent=args.permanent,
+        refresh_temporary=args.refresh_temporary,
         cache_path=Path(res.cache_dir) / "mapbox.duckdb",
     )
     try:
         if args.dry_run:
-            est = estimate(con, enricher, candidates_sql(res.shard, out.done_ids_sql(), res.limit))
+            done = None if args.refresh_temporary else out.done_ids_sql()
+            est = estimate(con, enricher, candidates_sql(res.shard, done, res.limit))
             print(
                 f"eligible orgs: {est.eligible:,} | distinct addresses: {est.unique:,} | already cached: {est.cached:,} "
                 f"| to request: {est.to_request:,} | estimated cost: ${est.cost_usd:,.2f} "
-                + ("($5/1,000 up to 500k requests a month, $4/1,000 above)" if args.permanent
+                + ("($5/1,000 up to 500k requests a month, $4/1,000 above" + ("; counts only temporary hits to refresh" if args.refresh_temporary else "") + ")" if args.permanent
                    else "(temporary: first 100k requests/month free, then $0.75/1,000 up to 500k; ignores usage already spent this month)")
             )
             return

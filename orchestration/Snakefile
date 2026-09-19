@@ -53,6 +53,9 @@ include: "rules/api_runner/load.smk"
 include: "rules/dumps.smk"
 include: "rules/pipeline/core_v3/merge.smk"
 include: "rules/pipeline/core_v3/enrichment.smk"
+include: "rules/pipeline/core_v4/merge.smk"
+include: "rules/pipeline/core_v4/enrichment.smk"
+include: "rules/pipeline/core_v4/assemble.smk"
 include: "rules/external/meta_heritage.smk"
 
 
@@ -142,3 +145,29 @@ rule core_v4_sources:
         _report_targets(exclude=CORE_V4_SOURCES_EXCLUDE, only_queries=CORE_V4_SOURCES_QUERY_OVERRIDES),
         f"reports/sources/dumps/{REPORT_NAME_ROR_DUMP}.md",
         f"reports/sources/dumps/{REPORT_NAME_OPENAIRE_DUMP}.md",
+
+
+# core_v4, end to end, in two chains so the project results come first (see
+# rules/pipeline/core_v4/*.smk and orchestration/README.md). Neither is part of `all`.
+#   core_v4_projects  staging -> enrichments for entity project + organization -> assemble --entity project
+#                     -> reports (staging, projects)
+#   core_v4_works     same for entity work -> assemble --entity work -> reports (staging, works).
+#                     Its enrichments wait for the projects duckdb (ordering only), so it always
+#                     runs after the projects chain, and pulls it in if it is missing.
+#   core_v4           both.
+# `--config limit=N` runs the whole thing on the dev sample into separate *_limit files.
+#   ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v4_projects
+rule core_v4_projects:
+    input:
+        CORE_V4_PROJECTS_TARGETS,
+
+
+rule core_v4_works:
+    input:
+        CORE_V4_WORKS_TARGETS,
+
+
+rule core_v4:
+    input:
+        CORE_V4_PROJECTS_TARGETS,
+        CORE_V4_WORKS_TARGETS,

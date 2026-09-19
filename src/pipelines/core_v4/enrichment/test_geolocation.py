@@ -50,7 +50,7 @@ def test_run_writes_side_output_and_resumes(staging, tmp_path):
     run(staging, enricher, out)
     assert out.is_complete()
     rows = duckdb.sql(f"SELECT lat, lon, geolocation_source, confidence FROM ({out.read_all_sql()})").fetchall()
-    assert rows == [(50.0, 8.0, "Mapbox", "high")] * 2
+    assert rows == [(50.0, 8.0, "mapbox_temporary", "high")] * 2
     assert sum(len(b) for b in fake.bodies) == 2
 
     run(staging, make(tmp_path, fake, budget=10), out)  # resume: nothing left, nothing sent
@@ -77,3 +77,30 @@ def test_dry_run_estimate(staging, tmp_path):
     assert est.cost_usd == 0.0  # temporary: free tier
     perm = estimate(staging, GeolocationEnricher('tok', cache_path=tmp_path / 'cache.duckdb', permanent=True), candidates_sql())
     assert perm.cost_usd == pytest.approx(0.01)
+
+
+def test_refresh_temporary_rewrites_the_side_output_as_permanent(staging, tmp_path):
+    out = SideOutput(tmp_path / "enrich", "geolocation", "organization")
+    fake = Fake()
+    run(staging, make(tmp_path, fake, budget=10), out)  # temporary run first
+    sent = sum(len(b) for b in fake.bodies)
+    assert sent == 2
+
+    def refreshing(budget):
+        return GeolocationEnricher(
+            "tok", max_requests=budget, cache_path=tmp_path / "cache.duckdb", http_post=fake, sleep=lambda s: None,
+            permanent=True, refresh_temporary=True,
+        )
+
+    est = estimate(staging, refreshing(0), candidates_sql())
+    assert (est.eligible, est.unique, est.cached, est.to_request) == (2, 2, 0, 2) and est.cost_usd == pytest.approx(0.01)
+
+    run(staging, refreshing(1), out)  # budget for one of the two: the other keeps its temporary answer
+    assert not out.is_complete()
+    rows = duckdb.sql(f"SELECT geolocation_source FROM ({out.read_all_sql()})").fetchall()
+    assert sorted(r[0] for r in rows) == ["mapbox", "mapbox_temporary"]
+
+    run(staging, refreshing(10), out)
+    assert out.is_complete()
+    rows = duckdb.sql(f"SELECT id, geolocation_source FROM ({out.read_all_sql()})").fetchall()
+    assert len(rows) == 2 and {r[1] for r in rows} == {"mapbox"}  # no duplicates left from the temporary parts

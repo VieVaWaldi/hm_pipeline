@@ -6,16 +6,20 @@ queries. Do not enable it without the owner's explicit OK.
 
 import os
 
+import duckdb
 import pytest
 
 from enrichment.geolocation.geocoder import (
     MAPBOX_BATCH_URL,
     GeolocationEnricher,
     InstitutionQuery,
+    MapboxCache,
     MapboxError,
     build_item,
     estimate_cost_usd,
     is_eligible,
+    city_parts,
+    parse_feature,
     query_key,
     split_street,
 )
@@ -23,6 +27,18 @@ from enrichment.geolocation.geocoder import (
 
 def feature(lon, lat, confidence="high"):
     return {"features": [{"geometry": {"coordinates": [lon, lat]}, "properties": {"match_code": {"confidence": confidence}}}]}
+
+
+def street_feature(lon, lat, place="Berlin", feature_type="street"):
+    """A street-only result: v6 sends no match_code for it."""
+    return {
+        "features": [
+            {
+                "geometry": {"coordinates": [lon, lat]},
+                "properties": {"feature_type": feature_type, "context": {"place": {"name": place}}},
+            }
+        ]
+    }
 
 
 EMPTY = {"features": []}
@@ -79,14 +95,15 @@ def test_request_shape(tmp_path):
 
 def test_permanent_option(tmp_path):
     fake = FakeMapbox({("Hauptstr.", "Berlin"): feature(13.4, 52.5)})
-    make(tmp_path, fake, permanent=True).enrich([BERLIN])
+    [r] = make(tmp_path, fake, permanent=True).enrich([BERLIN])
     assert fake.calls[0][1]["permanent"] == "true"
+    assert r.source == "mapbox"  # permanent: storable
 
 
 def test_result_is_lat_lon_of_lonlat_coordinates(tmp_path):
     fake = FakeMapbox({("Hauptstr.", "Berlin"): feature(13.4, 52.5, "exact")})
     [r] = make(tmp_path, fake).enrich([BERLIN])
-    assert (r.id, r.latitude, r.longitude, r.source, r.confidence) == (1, 52.5, 13.4, "Mapbox", "exact")
+    assert (r.id, r.latitude, r.longitude, r.source, r.confidence) == (1, 52.5, 13.4, "mapbox_temporary", "exact")
 
 
 def test_never_queries_without_a_real_address(tmp_path):
@@ -109,6 +126,83 @@ def test_only_medium_or_better(tmp_path, confidence, accepted):
     resp = feature(1, 2, confidence) if confidence else {"features": [{"geometry": {"coordinates": [1, 2]}, "properties": {}}]}
     results = make(tmp_path, FakeMapbox({("Hauptstr.", "Berlin"): resp})).enrich([BERLIN])
     assert bool(results) is accepted
+
+
+STREET_ONLY = InstitutionQuery(3, street="Piazza Navona", city="Roma", country="IT")
+
+
+def test_street_only_result_accepted_when_city_matches(tmp_path):
+    fake = FakeMapbox({("Piazza Navona", "Roma"): street_feature(12.47, 41.9, place="ROMA")})
+    [r] = make(tmp_path, fake).enrich([STREET_ONLY])
+    assert (r.latitude, r.longitude, r.confidence) == (41.9, 12.47, "street")
+    assert make(tmp_path, fake).cache.get_many([query_key(STREET_ONLY)])[query_key(STREET_ONLY)][:4] == (True, 41.9, 12.47, "street")
+
+
+@pytest.mark.parametrize("place,query_city", [("Zürich", "Zurich"), ("zurich", "ZÜRICH"), ("Köln", "koln"), ("Strasse-Stadt", "strasse stadt")])
+def test_street_place_match_ignores_case_and_diacritics(place, query_city):
+    assert parse_feature(street_feature(1, 2, place=place), query_city)[1] == "street"
+
+
+def with_postcode(resp, postcode):
+    resp["features"][0]["properties"]["context"]["postcode"] = {"name": postcode}
+    return resp
+
+
+@pytest.mark.parametrize("city", ["LOUVAIN / LEUVEN", "Leuven/Louvain", "Louvain, Leuven", "Louvain - Leuven", "Leuven"])
+def test_bilingual_city_matches_any_part(city):
+    assert parse_feature(street_feature(1, 2, place="Leuven"), city)[1] == "street"
+
+
+def test_city_parts_keeps_dashes_inside_names():
+    assert city_parts("LOUVAIN / LEUVEN") == ["LOUVAIN", "LEUVEN"]
+    assert city_parts("Aix-en-Provence") == ["Aix-en-Provence"]
+    assert city_parts("Brussels - Bruxelles, ") == ["Brussels", "Bruxelles"]
+
+
+def test_bilingual_city_sends_first_part_only_one_request(tmp_path):
+    fake = FakeMapbox({("Naamsestraat", "LOUVAIN"): street_feature(4.7, 50.87, place="Leuven")})
+    q = InstitutionQuery(1, street="Naamsestraat", city="LOUVAIN / LEUVEN", country="BE")
+    [r] = make(tmp_path, fake).enrich([q])
+    assert [i["place"] for i in fake.queried] == ["LOUVAIN"] and r.confidence == "street"
+
+
+def test_postcode_fallback_when_place_names_differ():
+    resp = with_postcode(street_feature(1, 2, place="Bruxelles"), "1000")
+    assert parse_feature(resp, "Brussel", "1000")[1] == "street"
+    assert parse_feature(with_postcode(street_feature(1, 2, place="X"), "OX1 2JD"), "Oxford", "ox12jd")[1] == "street"
+    assert parse_feature(resp, "Brussel", "1050")[0] is None  # other postcode, other place
+    assert parse_feature(resp, "Brussel", None)[0] is None
+    assert parse_feature(resp, "Brussel", "  ")[0] is None
+
+
+@pytest.mark.parametrize(
+    "resp,city",
+    [
+        (street_feature(1, 2, place="Milano"), "Roma"),  # another city
+        (street_feature(1, 2, place="Roma"), None),  # nothing to verify against
+        ({"features": [{"geometry": {"coordinates": [1, 2]}, "properties": {"feature_type": "street", "context": {}}}]}, "Roma"),
+        (street_feature(1, 2, place="Roma", feature_type="place"), "Roma"),  # not a street/address feature
+        (street_feature(1, 2, place="Roma", feature_type="postcode"), "Roma"),
+        ({"features": [{"geometry": {"coordinates": [1, 2]}, "properties": {}}]}, "Roma"),  # no feature_type, no confidence
+    ],
+)
+def test_street_only_result_rejected_otherwise(resp, city):
+    assert parse_feature(resp, city)[0] is None
+
+
+def test_street_confidence_is_only_for_results_without_match_code():
+    resp = feature(1, 2, "low")
+    resp["features"][0]["properties"].update(feature_type="street", context={"place": {"name": "Berlin"}})
+    assert parse_feature(resp, "Berlin") == (None, "low")  # a stated low confidence stays rejected
+    resp["features"][0]["properties"]["match_code"]["confidence"] = "medium"
+    assert parse_feature(resp, "Berlin") == ((2, 1), "medium")
+
+
+def test_street_place_mismatch_is_cached_as_negative(tmp_path):
+    fake = FakeMapbox({("Piazza Navona", "Roma"): street_feature(12.47, 41.9, place="Milano")})
+    assert make(tmp_path, fake).enrich([STREET_ONLY]) == []
+    assert make(tmp_path, fake).enrich([STREET_ONLY]) == [] and len(fake.queried) == 1
+    assert make(tmp_path, fake).cache.get_many([query_key(STREET_ONLY)])[query_key(STREET_ONLY)][:4] == (False, None, None, "street_place_mismatch")
 
 
 def test_cache_hit_positive_and_negative_never_paid_twice(tmp_path):
@@ -233,6 +327,103 @@ def test_estimate_dry_run_sends_nothing(tmp_path):
     assert (est.eligible, est.unique, est.cached, est.to_request) == (3, 2, 1, 1)
     assert est.cost_usd == 0.0  # temporary: inside the free tier
     assert len(fake.queried) == 1  # only the earlier real call
+
+
+def _cache_rows(path):
+    con = duckdb.connect(str(path), read_only=True)
+    try:
+        return con.execute("SELECT city, found, confidence, permanent FROM mapbox_cache ORDER BY city").fetchall()
+    finally:
+        con.close()
+
+
+def test_cache_records_the_mode_each_row_was_fetched_in(tmp_path):
+    fake = FakeMapbox({("Hauptstr.", "Berlin"): feature(13.4, 52.5)})
+    a = make(tmp_path, fake)
+    a.enrich([BERLIN])
+    a.close()
+    b = make(tmp_path, fake, permanent=True)
+    b.enrich([OXFORD])  # EMPTY: a permanent negative
+    b.close()
+    assert _cache_rows(tmp_path / "cache.duckdb") == [("Berlin", True, "high", False), ("Oxford", False, None, True)]
+
+
+def test_cache_migrates_a_database_without_the_permanent_column(tmp_path):
+    path = tmp_path / "old.duckdb"
+    con = duckdb.connect(str(path))
+    con.execute(
+        "CREATE TABLE mapbox_cache (key VARCHAR PRIMARY KEY, street VARCHAR, postcode VARCHAR, city VARCHAR, country VARCHAR,"
+        " found BOOLEAN NOT NULL, lat DOUBLE, lon DOUBLE, confidence VARCHAR, queried_at TIMESTAMP DEFAULT current_timestamp)"
+    )
+    con.execute("INSERT INTO mapbox_cache VALUES ('k1', 'Hauptstr.', NULL, 'Berlin', 'DE', TRUE, 52.5, 13.4, 'high', current_timestamp)")
+    con.close()
+    cache = MapboxCache(path)
+    assert cache.get_many(["k1"]) == {"k1": (True, 52.5, 13.4, "high", False)}  # pre-existing rows are temporary
+    cache.put_many([("k2", "X", "", "Y", "DE", True, 1.0, 2.0, "exact", True)])
+    cache.close()
+    MapboxCache(path).close()  # the migration is idempotent
+    cache = MapboxCache(path)
+    assert cache.get_many(["k1", "k2"])["k2"][4] is True and cache.get_many(["k1"])["k1"][4] is False
+    cache.close()
+
+
+def test_old_cached_rows_are_served_as_temporary_without_a_request(tmp_path):
+    path = tmp_path / "cache.duckdb"
+    con = duckdb.connect(str(path))
+    con.execute(
+        "CREATE TABLE mapbox_cache (key VARCHAR PRIMARY KEY, street VARCHAR, postcode VARCHAR, city VARCHAR, country VARCHAR,"
+        " found BOOLEAN NOT NULL, lat DOUBLE, lon DOUBLE, confidence VARCHAR, queried_at TIMESTAMP DEFAULT current_timestamp)"
+    )
+    con.execute("INSERT INTO mapbox_cache VALUES (?, 'Hauptstr.', '10115', 'Berlin', 'DE', TRUE, 52.5, 13.4, 'high', current_timestamp)", [query_key(BERLIN)])
+    con.close()
+    fake = FakeMapbox()
+    [r] = make(tmp_path, fake).enrich([BERLIN])
+    assert fake.calls == [] and r.source == "mapbox_temporary"
+
+
+def test_refresh_temporary_requests_exactly_the_cached_temporary_hits(tmp_path):
+    answers = {("Hauptstr.", "Berlin"): feature(13.4, 52.5), ("Weg", "Bonn"): feature(7.1, 50.7)}
+    fake = FakeMapbox(answers)
+    bonn = InstitutionQuery(4, street="Weg 2", city="Bonn", country="DE")
+    a = make(tmp_path, fake, permanent=True)  # OXFORD: permanent negative, BONN: permanent hit
+    a.enrich([bonn, OXFORD])
+    a.close()
+    b = make(tmp_path, fake)  # temporary run: a hit (BERLIN) and a negative (STREET_ONLY)
+    b.enrich([BERLIN, STREET_ONLY])
+    b.close()
+    fake.calls.clear()
+
+    everything = [BERLIN, OXFORD, bonn, STREET_ONLY]
+    plain = make(tmp_path, fake, permanent=True)
+    assert plain.estimate(everything).to_request == 0  # without the option a permanent run reuses temporary rows
+
+    c = make(tmp_path, fake, permanent=True, refresh_temporary=True)
+    est = c.estimate(everything)
+    assert (est.unique, est.cached, est.to_request) == (4, 3, 1)  # only BERLIN; temporary negatives and permanent rows stay
+    assert est.cost_usd == pytest.approx(0.005)
+    results = c.enrich(everything)
+    assert [item["place"] for item in fake.queried] == ["Berlin"] and c.stats.requests == 1
+    assert {r.id: r.source for r in results} == {1: "mapbox", 4: "mapbox"}
+    c.close()
+    assert make(tmp_path, fake, permanent=True, refresh_temporary=True).estimate(everything).to_request == 0  # now permanent
+
+
+def test_refresh_temporary_falls_back_to_the_cached_answer_without_budget(tmp_path):
+    fake = FakeMapbox({("Hauptstr.", "Berlin"): feature(13.4, 52.5)})
+    a = make(tmp_path, fake)
+    a.enrich([BERLIN])
+    a.close()
+    fake.calls.clear()
+    b = make(tmp_path, fake, budget=0, permanent=True, refresh_temporary=True)
+    [r] = b.enrich([BERLIN])
+    assert fake.calls == [] and r.source == "mapbox_temporary" and b.stats.deferred == 1
+
+
+def test_refresh_temporary_is_a_noop_for_a_temporary_run(tmp_path):
+    fake = FakeMapbox({("Hauptstr.", "Berlin"): feature(13.4, 52.5)})
+    make(tmp_path, fake).enrich([BERLIN])
+    fake.calls.clear()
+    assert make(tmp_path, fake, refresh_temporary=True).estimate([BERLIN]).to_request == 0
 
 
 def test_cost_tiers():

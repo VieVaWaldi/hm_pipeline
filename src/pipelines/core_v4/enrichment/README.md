@@ -35,7 +35,7 @@ when the output is complete. Paths come from `config/pipelines.yaml`
 | dch | project, work | id, is_ch, pred |
 | minorities | project, work | id, minority_qid VARCHAR[] (sparse) |
 | pillars | project, work | id, pillars UTINYINT (sparse) |
-| geolocation | organization | id, lat, lon, geolocation_source, confidence |
+| geolocation | organization | id, lat, lon, geolocation_source (`mapbox` \| `mapbox_temporary`), confidence (`exact` \| `high` \| `medium` \| `street`) |
 | regions | organization | id, region |
 
 `id` is the UBIGINT hash (values above int64 max; keep `uint64` in Arrow).

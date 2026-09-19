@@ -6,12 +6,19 @@ core_v3:
 core_v4:
   path_duck_staging: data/duckdb/core/core_v4_staging.duckdb   # read-only for enrichments
   path_duck: data/duckdb/core/core_v4.duckdb                   # written by Phase 3 assemble only
+  path_duck_projects: data/duckdb/core/core_v4_projects.duckdb # assemble: project-side subset of path_duck
+  path_duck_works: data/duckdb/core/core_v4_works.duckdb       # assemble: work-side subset of path_duck
   path_enrichment_dir: data/enrichment/core_v4/                # side parquet outputs, one dir per enrichment
   path_cache_dir: data/cache/                                  # persistent (e.g. mapbox.duckdb); teardown never deletes
+  work_cap: "50000000"                                         # transformation keeps at most this many works (string: not a path_ key)
+  path_core_v2_geolocations: data/pile/core_v2_geolocations.duckdb  # legacy geolocation tier (input; skipped with a warning when missing)
 
 # Same keys against the small dev sample (never the full dumps).
 core_v4_limit:
   path_duck_staging_limit: data/duckdb/core/core_v4_limit_staging.duckdb
   path_duck_limit: data/duckdb/core/core_v4_limit.duckdb
+  path_duck_projects_limit: data/duckdb/core/core_v4_limit_projects.duckdb
+  path_duck_works_limit: data/duckdb/core/core_v4_limit_works.duckdb
   path_enrichment_dir_limit: data/enrichment/core_v4_limit/
   path_cache_dir_limit: data/cache/
+  path_core_v2_geolocations: data/pile/core_v2_geolocations.duckdb  # input, same file as core_v4

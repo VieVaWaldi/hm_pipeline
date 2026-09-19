@@ -15,9 +15,13 @@ orchestration/
 │   ├── external/                   # ↔ src/sources/external/
 │   │   └── meta_heritage.smk       # postgres-backed, not core_v4 scope, own scripts
 │   └── pipeline/                   # ↔ pipeline-level code, not a source at all
-│       └── core_v3/
-│           ├── merge.smk           # transformation -> core_v3_staging.duckdb (+ shared CORE_V3_* resources)
-│           └── enrichment.smk      # seed_topics, topic_modelling, dch_classification, reports
+│       ├── core_v3/
+│       │   ├── merge.smk           # transformation -> core_v3_staging.duckdb (+ shared CORE_V3_* resources)
+│       │   └── enrichment.smk      # seed_topics, topic_modelling, dch_classification, reports
+│       └── core_v4/
+│           ├── merge.smk           # config (limit/skip/paths) + transformation -> core_v4_staging.duckdb
+│           ├── enrichment.smk      # sharded side-parquet enrichments + `_SUCCESS` finalize, geolocation
+│           └── assemble.smk        # assemble --entity project|work, reports
 ├── envs/                           # per-rule container images (empty until core_v4 rules exist)
 └── profiles/slurm/                 # SLURM executor config for HPC runs
 ```
@@ -99,6 +103,75 @@ report per duckdb — see `src/pipelines/core_v3/README.md` for the chain and re
 ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm core_v3
 ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm core_v3 --config limit=500  # sample run
 ```
+
+### core_v4
+
+`core_v4_projects`, `core_v4_works` and `core_v4` (both) run the core_v4 chain: staging (transformation) ->
+enrichments -> assemble -> reports. None of them is part of `all` or `core_v3`. HPC-only for real runs.
+The rules are in `rules/pipeline/core_v4/`; the enrichments are documented in
+`src/pipelines/core_v4/enrichment/README.md`.
+
+```
+core_v4_projects:  staging -> {nllb -> topics -> theme, minorities, pillars, dch}(project), {regions, geolocation}(organization)
+                   -> assemble --entity project -> reports/pipelines/core_v4/{staging,projects}.md
+core_v4_works:     staging -> {nllb -> topics -> theme, minorities, pillars, dch}(work)
+                   -> assemble --entity work -> reports/pipelines/core_v4/{staging,works}.md
+```
+
+Projects first: every works enrichment has the projects duckdb (`path_duck_projects`) as an ordering-only input
+(`ancient()`), so `core_v4_works` never starts before the projects chain has assembled, and pulls the projects
+chain in if it has not run. Rebuilding the projects duckdb later does not rerun the works enrichments.
+
+```bash
+# full run on prod, projects first (add --keep-going to let independent jobs finish when one fails)
+ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v4_projects
+ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v4_works
+# (or both in one go: ... core_v4)
+
+# dry run (nothing is executed; shows job counts and shard fan-out)
+ENV=prod uv run snakemake -n -s orchestration/Snakefile core_v4_projects
+
+# limit run on the dev sample: everything goes to the core_v4_limit* paths and reports/pipelines/core_v4_limit/,
+# never touching a full run's files. One shard per enrichment.
+ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v4_projects --config limit=50
+
+# local run without a GPU: skipped enrichments drop out of the DAG, assemble gets --skip, the others read the original text
+uv run snakemake -s orchestration/Snakefile --cores 4 core_v4_projects --config limit=50 skip=nllb,dch
+```
+
+Config keys (`--config key=value ...`), all optional:
+
+| key | effect |
+|---|---|
+| `limit=N` | switch the whole DAG to the `core_v4_limit` variant; N goes to the transformation as `--limit`. It is a rule param, so changing N reruns the transformation and everything after it |
+| `work_cap=N` | transformation `--work-cap N` |
+| `skip=nllb,dch` | leave these enrichments out (names: nllb, topics, theme, minorities, pillars, dch, regions, geolocation); assemble gets `--skip`; text enrichments get `--allow-untranslated` when nllb is skipped; skipping topics also skips theme |
+| `geolocation_max_requests=N` | Mapbox budget; geolocation is only part of the DAG when N > 0 (default: off) |
+| `geolocation_permanent=true` | send `--permanent` (billed, $5/1,000). Default is temporary geocoding (free tier) |
+| `shards=N`, `shards_<name>=N` | override the shard count of every / one enrichment (theme, regions, geolocation are always 1) |
+
+Enabling geolocation (runs last in the projects chain, single process, spends the Mapbox budget; cached answers are free):
+
+```bash
+ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm \
+    core_v4_projects --config geolocation_max_requests=20000
+```
+
+If the budget runs out the CLI writes no `_SUCCESS`, the job fails with a missing-output error and assemble does not
+run; rerun with a larger number. Without `geolocation_max_requests`, assemble is called with `--skip geolocation`.
+
+Sharding and idempotency: each (enrichment, entity) is N jobs (`--shard I/N`, one `temp()` sentinel each under
+`.snakemake/sentinels/enrichment/core_v4/...`) and one local `core_v4_success` job that writes the real artifact,
+`<enrichment_dir>/<name>/<entity>/_SUCCESS`, through `SideOutput`. Downstream rules depend on that file, so what is
+done is decided by files on disk. To force one enrichment to rerun (it resumes from its parquet parts, and everything
+downstream reruns too), delete its `_SUCCESS` and run the target again:
+
+```bash
+rm data/enrichment/core_v4/dch/project/_SUCCESS   # under /work/lu72hip/... on prod
+```
+
+Shard counts and GPU resources are in `rules/pipeline/core_v4/enrichment.smk` (`_CORE_V4_DEFAULT_SHARDS`); the
+NLLB/DCH values are provisional until they are set from the measured throughput.
 
 ### Running Individually
 

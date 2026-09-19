@@ -1,0 +1,1015 @@
+{
+  "meta": {
+    "run_date": "2026-09-19",
+    "staging_db": "/work/lu72hip/data/duckdb/sources/openaire_staging_2.duckdb",
+    "raw_db": "/work/lu72hip/data/duckdb/sources/openaire_raw.duckdb",
+    "ror_db": "/work/lu72hip/data/duckdb/sources/ror_raw.duckdb",
+    "cordis_db": "/work/lu72hip/data/duckdb/sources/cordis_full_projects_no_pdfs_raw.duckdb"
+  },
+  "relations": [
+    {
+      "sourceType": "product",
+      "relType": "hasAuthorInstitution",
+      "targetType": "organization",
+      "rows": 282790150
+    },
+    {
+      "sourceType": "project",
+      "relType": "produces",
+      "targetType": "product",
+      "rows": 8574474
+    },
+    {
+      "sourceType": "project",
+      "relType": "hasParticipant",
+      "targetType": "organization",
+      "rows": 5550746
+    }
+  ],
+  "works": {
+    "total": 218421450,
+    "groups": {
+      "both": {
+        "n": 4558270,
+        "title": 4557962,
+        "description": 4271199,
+        "valid_date": 4531598
+      },
+      "project_only": {
+        "n": 443603,
+        "title": 443448,
+        "description": 384678,
+        "valid_date": 212956
+      },
+      "org_only": {
+        "n": 115456657,
+        "title": 115421607,
+        "description": 84870744,
+        "valid_date": 114925597
+      },
+      "neither": {
+        "n": 97962920,
+        "title": 96535301,
+        "description": 33817825,
+        "valid_date": 92815090
+      }
+    },
+    "linked_project_any": 5001873,
+    "linked_org_any": 120014927,
+    "produces_targets_distinct": 5001873,
+    "author_institution_sources_distinct": 120014927,
+    "year_histogram_5y": {
+      "<1900": {
+        "both": 47,
+        "project_only": 151,
+        "org_only": 292692,
+        "neither": 1873638
+      },
+      "1900-1904": {
+        "both": 9,
+        "project_only": 20,
+        "org_only": 26885,
+        "neither": 316423
+      },
+      "1905-1909": {
+        "both": 3,
+        "project_only": 27,
+        "org_only": 37043,
+        "neither": 351823
+      },
+      "1910-1914": {
+        "both": 2,
+        "project_only": 31,
+        "org_only": 42227,
+        "neither": 393927
+      },
+      "1915-1919": {
+        "both": 6,
+        "project_only": 16,
+        "org_only": 36490,
+        "neither": 332155
+      },
+      "1920-1924": {
+        "both": 9,
+        "project_only": 22,
+        "org_only": 49647,
+        "neither": 414305
+      },
+      "1925-1929": {
+        "both": 13,
+        "project_only": 22,
+        "org_only": 69385,
+        "neither": 519937
+      },
+      "1930-1934": {
+        "both": 4,
+        "project_only": 25,
+        "org_only": 85769,
+        "neither": 567446
+      },
+      "1935-1939": {
+        "both": 11,
+        "project_only": 29,
+        "org_only": 101585,
+        "neither": 583671
+      },
+      "1940-1944": {
+        "both": 7,
+        "project_only": 38,
+        "org_only": 93188,
+        "neither": 486321
+      },
+      "1945-1949": {
+        "both": 14,
+        "project_only": 29,
+        "org_only": 115412,
+        "neither": 511930
+      },
+      "1950-1954": {
+        "both": 15,
+        "project_only": 36,
+        "org_only": 216216,
+        "neither": 739409
+      },
+      "1955-1959": {
+        "both": 30,
+        "project_only": 48,
+        "org_only": 309681,
+        "neither": 903709
+      },
+      "1960-1964": {
+        "both": 61,
+        "project_only": 68,
+        "org_only": 472273,
+        "neither": 1146352
+      },
+      "1965-1969": {
+        "both": 165,
+        "project_only": 62,
+        "org_only": 765495,
+        "neither": 1898134
+      },
+      "1970-1974": {
+        "both": 418,
+        "project_only": 108,
+        "org_only": 1145336,
+        "neither": 2428101
+      },
+      "1975-1979": {
+        "both": 781,
+        "project_only": 170,
+        "org_only": 1476131,
+        "neither": 2631576
+      },
+      "1980-1984": {
+        "both": 2345,
+        "project_only": 364,
+        "org_only": 1988042,
+        "neither": 2916248
+      },
+      "1985-1989": {
+        "both": 4864,
+        "project_only": 381,
+        "org_only": 2844915,
+        "neither": 3172505
+      },
+      "1990-1994": {
+        "both": 8968,
+        "project_only": 446,
+        "org_only": 4154661,
+        "neither": 3320858
+      },
+      "1995-1999": {
+        "both": 43577,
+        "project_only": 1760,
+        "org_only": 5428218,
+        "neither": 4249774
+      },
+      "2000-2004": {
+        "both": 88741,
+        "project_only": 2735,
+        "org_only": 7689903,
+        "neither": 5789555
+      },
+      "2005-2009": {
+        "both": 198661,
+        "project_only": 6483,
+        "org_only": 11477663,
+        "neither": 7289457
+      },
+      "2010-2014": {
+        "both": 629567,
+        "project_only": 24988,
+        "org_only": 16504689,
+        "neither": 11091112
+      },
+      "2015-2019": {
+        "both": 1275681,
+        "project_only": 80350,
+        "org_only": 21885637,
+        "neither": 14501929
+      },
+      "2020-2024": {
+        "both": 1959432,
+        "project_only": 78898,
+        "org_only": 29722193,
+        "neither": 18521196
+      },
+      "2025-2029": {
+        "both": 318146,
+        "project_only": 15641,
+        "org_only": 7893290,
+        "neither": 5850614
+      },
+      "2030-2034": {
+        "both": 10,
+        "project_only": 0,
+        "org_only": 191,
+        "neither": 338
+      },
+      "2035-2039": {
+        "both": 5,
+        "project_only": 2,
+        "org_only": 227,
+        "neither": 196
+      },
+      "2040-2044": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 6,
+        "neither": 95
+      },
+      "2045-2049": {
+        "both": 1,
+        "project_only": 0,
+        "org_only": 2,
+        "neither": 23
+      },
+      "2050-2054": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 4,
+        "neither": 19
+      },
+      "2055-2059": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 1,
+        "neither": 22
+      },
+      "2060-2064": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 1,
+        "neither": 5
+      },
+      "2065-2069": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 2,
+        "neither": 2
+      },
+      "2070-2074": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 2,
+        "neither": 6
+      },
+      "2075-2079": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 4,
+        "neither": 8
+      },
+      "2080-2084": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 2,
+        "neither": 30
+      },
+      "2085-2089": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 11,
+        "neither": 17
+      },
+      "2090-2094": {
+        "both": 0,
+        "project_only": 1,
+        "org_only": 3,
+        "neither": 3
+      },
+      "2095-2099": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 19,
+        "neither": 20
+      },
+      "2100-2104": {
+        "both": 4,
+        "project_only": 0,
+        "org_only": 40,
+        "neither": 60
+      },
+      "2105-2109": {
+        "both": 1,
+        "project_only": 0,
+        "org_only": 76,
+        "neither": 59
+      },
+      "2110-2114": {
+        "both": 0,
+        "project_only": 1,
+        "org_only": 1,
+        "neither": 39
+      },
+      "2115-2119": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 3,
+        "neither": 40
+      },
+      "2120-2124": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 30,
+        "neither": 9
+      },
+      "2150-2154": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 1
+      },
+      "2200-2204": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 2,
+        "neither": 9
+      },
+      "2205-2209": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 2,
+        "neither": 0
+      },
+      "2220-2224": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 1
+      },
+      "2300-2304": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 1
+      },
+      "2320-2324": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 2
+      },
+      "2515-2519": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 1
+      },
+      "2525-2529": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 5,
+        "neither": 166
+      },
+      "2545-2549": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 115
+      },
+      "2550-2554": {
+        "both": 0,
+        "project_only": 1,
+        "org_only": 14,
+        "neither": 754
+      },
+      "2555-2559": {
+        "both": 0,
+        "project_only": 2,
+        "org_only": 148,
+        "neither": 4073
+      },
+      "2560-2564": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 103,
+        "neither": 4028
+      },
+      "2565-2569": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 7,
+        "neither": 2626
+      },
+      "2570-2574": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 14
+      },
+      "2575-2579": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 8,
+        "neither": 140
+      },
+      "2580-2584": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 2,
+        "neither": 33
+      },
+      "2600-2604": {
+        "both": 0,
+        "project_only": 1,
+        "org_only": 0,
+        "neither": 0
+      },
+      "2625-2629": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 1
+      },
+      "2630-2634": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 1
+      },
+      "2635-2639": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 1
+      },
+      "2640-2644": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 1
+      },
+      "2645-2649": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 2
+      },
+      "2700-2704": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 1
+      },
+      "2800-2804": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 1
+      },
+      "2805-2809": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 1,
+        "neither": 9
+      },
+      "2895-2899": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 1
+      },
+      "2900-2904": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 3,
+        "neither": 1
+      },
+      "2910-2914": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 1,
+        "neither": 2
+      },
+      "2915-2919": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 8,
+        "neither": 2
+      },
+      "2920-2924": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 2,
+        "neither": 2
+      },
+      "2925-2929": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 3
+      },
+      "2995-2999": {
+        "both": 0,
+        "project_only": 0,
+        "org_only": 0,
+        "neither": 2
+      },
+      "no date": {
+        "both": 26672,
+        "project_only": 230647,
+        "org_only": 531060,
+        "neither": 5147830
+      }
+    },
+    "future_dated": 16879,
+    "cap": {
+      "25000000": {
+        "kept": {
+          "n": 25000000,
+          "title": 24997302,
+          "description": 17954674,
+          "valid_date": 24742681
+        },
+        "per_tier": {
+          "both": {
+            "kept": 4558270,
+            "of": 4558270
+          },
+          "project_only": {
+            "kept": 443603,
+            "of": 443603
+          },
+          "org_only": {
+            "kept": 19998127,
+            "of": 115456657
+          }
+        },
+        "cutoff": {
+          "tier": "org_only",
+          "cutoff_date": "2023-01-01",
+          "tier_rows_newer_than_cutoff": 19009702,
+          "tier_rows_on_cutoff_date": 1464323
+        }
+      },
+      "50000000": {
+        "kept": {
+          "n": 50000000,
+          "title": 49994572,
+          "description": 37142515,
+          "valid_date": 49742681
+        },
+        "per_tier": {
+          "both": {
+            "kept": 4558270,
+            "of": 4558270
+          },
+          "project_only": {
+            "kept": 443603,
+            "of": 443603
+          },
+          "org_only": {
+            "kept": 44998127,
+            "of": 115456657
+          }
+        },
+        "cutoff": {
+          "tier": "org_only",
+          "cutoff_date": "2018-05-01",
+          "tier_rows_newer_than_cutoff": 44894873,
+          "tier_rows_on_cutoff_date": 106004
+        }
+      },
+      "75000000": {
+        "kept": {
+          "n": 75000000,
+          "title": 74988564,
+          "description": 56625118,
+          "valid_date": 74742681
+        },
+        "per_tier": {
+          "both": {
+            "kept": 4558270,
+            "of": 4558270
+          },
+          "project_only": {
+            "kept": 443603,
+            "of": 443603
+          },
+          "org_only": {
+            "kept": 69998127,
+            "of": 115456657
+          }
+        },
+        "cutoff": {
+          "tier": "org_only",
+          "cutoff_date": "2012-01-01",
+          "tier_rows_newer_than_cutoff": 68975017,
+          "tier_rows_on_cutoff_date": 1068430
+        }
+      },
+      "100000000": {
+        "kept": {
+          "n": 100000000,
+          "title": 99979490,
+          "description": 75522419,
+          "valid_date": 99742681
+        },
+        "per_tier": {
+          "both": {
+            "kept": 4558270,
+            "of": 4558270
+          },
+          "project_only": {
+            "kept": 443603,
+            "of": 443603
+          },
+          "org_only": {
+            "kept": 94998127,
+            "of": 115456657
+          }
+        },
+        "cutoff": {
+          "tier": "org_only",
+          "cutoff_date": "2000-01-01",
+          "tier_rows_newer_than_cutoff": 94713422,
+          "tier_rows_on_cutoff_date": 460884
+        }
+      }
+    }
+  },
+  "nllb": {
+    "top_languages": [
+      {
+        "code": "eng",
+        "works": 113151213
+      },
+      {
+        "code": "und",
+        "works": 72282170
+      },
+      {
+        "code": "deu/ger",
+        "works": 6454174
+      },
+      {
+        "code": "fra/fre",
+        "works": 4497994
+      },
+      {
+        "code": "rus",
+        "works": 3613354
+      },
+      {
+        "code": "jpn",
+        "works": 3230744
+      },
+      {
+        "code": "ita",
+        "works": 2455427
+      },
+      {
+        "code": "esl/spa",
+        "works": 1766785
+      },
+      {
+        "code": "tur",
+        "works": 1537325
+      },
+      {
+        "code": "por",
+        "works": 1201218
+      },
+      {
+        "code": "spa",
+        "works": 1150978
+      },
+      {
+        "code": "pol",
+        "works": 757518
+      },
+      {
+        "code": "dut/nld",
+        "works": 702909
+      },
+      {
+        "code": "hrv",
+        "works": 597896
+      },
+      {
+        "code": "ces/cze",
+        "works": 507360
+      },
+      {
+        "code": "ukr",
+        "works": 457047
+      },
+      {
+        "code": "ara",
+        "works": 356862
+      },
+      {
+        "code": "fin",
+        "works": 327132
+      },
+      {
+        "code": "per",
+        "works": 266689
+      },
+      {
+        "code": "cat",
+        "works": 265846
+      }
+    ],
+    "length_chars": {
+      "title": {
+        "n": 216958318,
+        "avg": 79.56126055973571,
+        "p95": 157.0,
+        "max": 119750
+      },
+      "descriptions[1]": {
+        "n": 123344446,
+        "avg": 1152.8959970520277,
+        "p95": 2441.0,
+        "max": 5179731
+      }
+    }
+  },
+  "orgs": {
+    "total": 494099,
+    "with_rorId": 126401,
+    "rorId_found_in_ror_raw": 126400,
+    "with_ror_coordinates": 126400,
+    "without_coordinates": 367699,
+    "with_pic": 69883,
+    "countryCode_null": 157221,
+    "top_countryCode": [
+      {
+        "code": null,
+        "orgs": 157221
+      },
+      {
+        "code": "US",
+        "orgs": 61119
+      },
+      {
+        "code": "FR",
+        "orgs": 31567
+      },
+      {
+        "code": "GB",
+        "orgs": 21730
+      },
+      {
+        "code": "DE",
+        "orgs": 20700
+      },
+      {
+        "code": "IT",
+        "orgs": 15531
+      },
+      {
+        "code": "ES",
+        "orgs": 15140
+      },
+      {
+        "code": "NL",
+        "orgs": 8622
+      },
+      {
+        "code": "JP",
+        "orgs": 7382
+      },
+      {
+        "code": "GR",
+        "orgs": 7263
+      },
+      {
+        "code": "CH",
+        "orgs": 7141
+      },
+      {
+        "code": "CN",
+        "orgs": 6925
+      },
+      {
+        "code": "PL",
+        "orgs": 6701
+      },
+      {
+        "code": "BE",
+        "orgs": 6695
+      },
+      {
+        "code": "TR",
+        "orgs": 6656
+      },
+      {
+        "code": "PT",
+        "orgs": 5756
+      },
+      {
+        "code": "IN",
+        "orgs": 5754
+      },
+      {
+        "code": "CA",
+        "orgs": 5599
+      },
+      {
+        "code": "CZ",
+        "orgs": 5259
+      },
+      {
+        "code": "SE",
+        "orgs": 5197
+      }
+    ]
+  },
+  "cordis": {
+    "institutions": 180813,
+    "real_coordinates": 129843,
+    "street_and_city": 165708,
+    "project_match": {
+      "cordis_projects": 142773,
+      "matched": 87439,
+      "openaire_projects_matched": 98326,
+      "pairs": 98326,
+      "cordis_projects_with_multiple_openaire_matches": 9250
+    },
+    "org_match_yield": {
+      "triplets_in_matched_projects": 480133,
+      "variants": {
+        "name only": {
+          "distinct_triplets": 293479,
+          "pairs": 735075,
+          "cordis_institutions": 63703,
+          "openaire_orgs": 75113,
+          "triplets_confirmed_by_hasParticipant": 195607,
+          "pairs_confirmed_by_hasParticipant": 196169
+        },
+        "name + country": {
+          "distinct_triplets": 249755,
+          "pairs": 376227,
+          "cordis_institutions": 61716,
+          "openaire_orgs": 63576,
+          "triplets_confirmed_by_hasParticipant": 191835,
+          "pairs_confirmed_by_hasParticipant": 192334
+        },
+        "name + country (null on either side allowed)": {
+          "distinct_triplets": 292160,
+          "pairs": 715086,
+          "cordis_institutions": 63520,
+          "openaire_orgs": 74122,
+          "triplets_confirmed_by_hasParticipant": 194180,
+          "pairs_confirmed_by_hasParticipant": 194681
+        },
+        "PIC": {
+          "distinct_triplets": 430591,
+          "pairs": 553115,
+          "cordis_institutions": 68515,
+          "openaire_orgs": 68045,
+          "triplets_confirmed_by_hasParticipant": 393063,
+          "pairs_confirmed_by_hasParticipant": 393380
+        }
+      }
+    },
+    "pic_vs_name": {
+      "pic_pairs": 553115,
+      "pic_pairs_also_name_country": 276587,
+      "triplets_pic_not_name_country": 191980,
+      "triplets_pic_not_name_only": 151893
+    },
+    "pic_overlap": {
+      "jpi_rows": 761774,
+      "jpi_rows_with_pic": 465970,
+      "cordis_distinct_pics": 81136,
+      "openaire_distinct_pics": 69730,
+      "in_both": 67922
+    },
+    "mapbox_candidates": {
+      "name only": {
+        "matched_orgs": 81848,
+        "no_ror_coords": 74924,
+        "mapbox_candidates": 73022,
+        "candidates_with_cordis_coords": 53616,
+        "candidates_needing_mapbox": 19406,
+        "no_ror_coords_but_cordis_coords": 54867
+      },
+      "name + country": {
+        "matched_orgs": 67234,
+        "no_ror_coords": 61344,
+        "mapbox_candidates": 60278,
+        "candidates_with_cordis_coords": 44230,
+        "candidates_needing_mapbox": 16048,
+        "no_ror_coords_but_cordis_coords": 44932
+      },
+      "PIC": {
+        "matched_orgs": 68125,
+        "no_ror_coords": 60364,
+        "mapbox_candidates": 59644,
+        "candidates_with_cordis_coords": 43557,
+        "candidates_needing_mapbox": 16087,
+        "no_ror_coords_but_cordis_coords": 44088
+      }
+    },
+    "duplicate_names": {
+      "distinct_names": 172930,
+      "names_multi_institution": 7528,
+      "institution_rows_multi": 15411,
+      "names_multi_street_city_country": 6912,
+      "institution_rows_multi_street_city_country": 14172,
+      "names_multi_city_country": 3610,
+      "institution_rows_multi_city_country": 7467,
+      "openaire_names_multi_org": 60019,
+      "openaire_orgs_in_multi_name": 134711,
+      "openaire_names_multi_country": 1285
+    }
+  },
+  "country_codes": {
+    "sources": {
+      "openaire org.countryCode": {
+        "distinct": 241,
+        "null": 157221,
+        "non_iso": {
+          "EU": 169,
+          "OC": 2,
+          "AN": 2,
+          "YU": 1
+        },
+        "still_unmapped": {}
+      },
+      "cordis institution.country": {
+        "distinct": 218,
+        "null": 186,
+        "non_iso": {
+          "UK": 16050,
+          "EL": 5456,
+          "YU": 100,
+          "ZZ": 28,
+          "ZR": 4,
+          "CS": 3,
+          "AN": 3,
+          "DC": 1,
+          "EU": 1
+        },
+        "still_unmapped": {}
+      },
+      "ror location country_code": {
+        "distinct": 233,
+        "null": 0,
+        "non_iso": {},
+        "still_unmapped": {}
+      },
+      "openaire work.countries": {
+        "distinct": 115,
+        "null": 0,
+        "non_iso": {
+          "QAT": 510,
+          "EU": 149,
+          "LIE": 31,
+          "EUROPE": 26,
+          "WORLD": 18,
+          "DD": 1,
+          "CS": 1,
+          "YU": 1
+        },
+        "still_unmapped": {}
+      }
+    },
+    "distinct_union": 253,
+    "proposed_mapping": {
+      "EL": "GR",
+      "UK": "GB",
+      "ZR": "CD",
+      "YU": "RS",
+      "CS": "RS",
+      "AN": "CW",
+      "QAT": "QA",
+      "LIE": "LI",
+      "ZZ": null,
+      "EU": null,
+      "DC": null,
+      "DD": null,
+      "OC": null,
+      "EUROPE": null,
+      "WORLD": null
+    },
+    "kept_non_iso": [
+      "XK"
+    ]
+  }
+}

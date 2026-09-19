@@ -8,6 +8,10 @@ Applies per table:
   - Column drops, renames, row filters
   - frameworkProgrammes extraction from fundings[].fundingStream
   - relation: hash source and target in place
+
+--target v3 (default) writes openaire_staging_2.duckdb, exactly as core_v3 reads it.
+--target v4 writes openaire_staging_v4.duckdb and additionally keeps work.countries
+(VARCHAR[] of country codes); every other column is identical to v3.
 """
 
 import argparse
@@ -38,13 +42,23 @@ _parser.add_argument(
     "set to this minus DUCKDB_MEM_HEADROOM_MB.",
 )
 _parser.add_argument("--threads", type=int, default=32)
+_parser.add_argument(
+    "--target",
+    choices=["v3", "v4"],
+    default="v3",
+    help="v3 (default): rebuild openaire_staging_2.duckdb, which core_v3 reads. "
+    "v4: build openaire_staging_v4.duckdb (adds work.countries), leaving v3 untouched.",
+)
 _args = _parser.parse_args()
 
 config = get_dumps_paths()["openaire_dump"]
 RAW_DB = Path(config["path_duck"])
+# v3 keeps the path_duck_staging_2 "pids temp" hack in place; core_v3 reads it.
 STAGING_DB = Path(
     config["path_duck_staging_2"]
-)  # IMPORTANT i changed this for the pids temp
+    if _args.target == "v3"
+    else config["path_duck_staging_v4"]
+)  # IMPORTANT v3 target: i changed this for the pids temp
 
 ensure_path_exists(STAGING_DB)
 
@@ -55,7 +69,7 @@ for stale in (STAGING_DB, STAGING_DB.with_name(STAGING_DB.name + ".wal")):
         logging.warning(f"Removing existing staging file: {stale}")
         stale.unlink()
 
-logging.info("OPENAIRE STAGING")
+logging.info(f"OPENAIRE STAGING (target={_args.target})")
 logging.info(f"Source: {RAW_DB}")
 logging.info(f"Target: {STAGING_DB}")
 
@@ -112,8 +126,15 @@ logging.info(f"organization rows: {count:,}")
 logging.info("--- Staging project ---")
 t = datetime.now()
 
+# v4 only: project DOI (from pids), needed for the DOI join. v3 drops pids.
+PROJECT_DOI_COLUMN = (
+    "(list_filter(pids, p -> p.scheme = 'doi'))[1].value                     AS doi,"
+    if _args.target == "v4"
+    else ""
+)
+
 con.execute(
-    """
+    f"""
     CREATE TABLE project AS
     SELECT
         hash(id)                                                            AS id,
@@ -147,6 +168,7 @@ con.execute(
             x -> x IS NOT NULL AND x != ''
         ))                                                                  AS frameworkProgrammes,
         sanitize_content(summary)                                           AS summary,
+        {PROJECT_DOI_COLUMN}
         granted
     FROM raw.project
     WHERE title IS NOT NULL
@@ -165,8 +187,15 @@ logging.info(f"project rows: {count:,}")
 logging.info("--- Staging work ---")
 t = datetime.now()
 
+# v4 only: distinct country codes (VARCHAR[]); label and provenance are redundant.
+WORK_COUNTRIES_COLUMN = (
+    "list_distinct(list_transform(countries, c -> c.code))                   AS countries,"
+    if _args.target == "v4"
+    else ""
+)
+
 con.execute(
-    """
+    f"""
     CREATE TABLE work AS
     SELECT
         hash(id)                                                            AS id,
@@ -194,6 +223,7 @@ con.execute(
         indicators.citationImpact.citationCount                             AS citationCount,
         indicators.citationImpact.influence                                 AS influence,
         indicators.usageCounts.views                                        AS views,
+        {WORK_COUNTRIES_COLUMN}
         container
     FROM raw.work
 """

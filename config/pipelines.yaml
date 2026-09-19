@@ -2,3 +2,16 @@ core_v3:
   path_duck_staging: data/duckdb/core/core_v3_staging.duckdb      # right after transformation (merge output, never enriched)
   path_duck_staging_2: data/duckdb/core/core_v3_staging_2.duckdb  # + seed_topics, topic_modelling
   path_duck: data/duckdb/core/core_v3.duckdb                      # + dch_classification (final)
+
+core_v4:
+  path_duck_staging: data/duckdb/core/core_v4_staging.duckdb   # read-only for enrichments
+  path_duck: data/duckdb/core/core_v4.duckdb                   # written by Phase 3 assemble only
+  path_enrichment_dir: data/enrichment/core_v4/                # side parquet outputs, one dir per enrichment
+  path_cache_dir: data/cache/                                  # persistent (e.g. mapbox.duckdb); teardown never deletes
+
+# Same keys against the small dev sample (never the full dumps).
+core_v4_limit:
+  path_duck_staging_limit: data/duckdb/core/core_v4_limit_staging.duckdb
+  path_duck_limit: data/duckdb/core/core_v4_limit.duckdb
+  path_enrichment_dir_limit: data/enrichment/core_v4_limit/
+  path_cache_dir_limit: data/cache/

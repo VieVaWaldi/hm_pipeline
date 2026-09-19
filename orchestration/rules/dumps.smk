@@ -144,6 +144,25 @@ rule stage_openaire_dump:
         "python -m sources.dumps.openaire.staging --mem-mb {resources.mem_mb} --threads {resources.cpus_per_task} &> {log}"
 
 
+rule stage_openaire_dump_v4:
+    # Copy of stage_openaire_dump writing openaire_staging_v4.duckdb (adds
+    # work.countries). Deliberately not an input of all / ingest_dumps / core_v3:
+    # core_v3 keeps reading openaire_staging_2.duckdb. Run it explicitly:
+    #   snakemake stage_openaire_dump_v4 (or its report, see below)
+    input:
+        rules.load_openaire_dump.output,
+    output:
+        DUMP_PATHS["openaire_dump"]["path_duck_staging_v4"],
+    resources:
+        mem_mb=200000,
+        runtime=4320,
+        cpus_per_task=32,
+    log:
+        str(LOGGING_PATH / "stage_openaire_dump_v4.log"),
+    shell:
+        "python -m sources.dumps.openaire.staging --target v4 --mem-mb {resources.mem_mb} --threads {resources.cpus_per_task} &> {log}"
+
+
 # openalex_dump is corev5 scope — download rule kept for parity, not wired into `rule all`.
 rule download_openalex_dump:
     output:
@@ -158,6 +177,7 @@ rule download_openalex_dump:
 REPORT_NAME_ROR_DUMP = f"ror_dump_{DUMP_PATHS['ror_dump']['version']}"
 REPORT_NAME_OPENAIRE_DUMP = f"openaire_dump_{DUMP_PATHS['openaire_dump']['version']}"
 REPORT_NAME_OPENAIRE_DUMP_STAGING = f"openaire_dump_staging_2_{DUMP_PATHS['openaire_dump']['version']}"
+REPORT_NAME_OPENAIRE_DUMP_STAGING_V4 = f"openaire_dump_staging_v4_{DUMP_PATHS['openaire_dump']['version']}"
 REPORT_NAME_MINORITIES = "minorities"
 REPORT_NAME_OA_TOPICS = "oa_topics"
 
@@ -165,6 +185,7 @@ DUMP_REPORT_INPUTS = {
     REPORT_NAME_ROR_DUMP: rules.load_ror_dump.output,
     REPORT_NAME_OPENAIRE_DUMP: rules.load_openaire_dump.output,
     REPORT_NAME_OPENAIRE_DUMP_STAGING: rules.stage_openaire_dump.output,
+    REPORT_NAME_OPENAIRE_DUMP_STAGING_V4: rules.stage_openaire_dump_v4.output,
     REPORT_NAME_MINORITIES: rules.load_minorities.output,
     REPORT_NAME_OA_TOPICS: rules.load_oa_topics.output,
 }
@@ -177,7 +198,11 @@ DUMP_REPORT_INPUTS = {
 # below; without that the buffer pool outgrows the allocation and the job is
 # OOM-killed. runtime is set explicitly because the profile default lands as a
 # 48 min SLURM limit.
-LARGE_DUMP_REPORTS = {REPORT_NAME_OPENAIRE_DUMP, REPORT_NAME_OPENAIRE_DUMP_STAGING}
+LARGE_DUMP_REPORTS = {
+    REPORT_NAME_OPENAIRE_DUMP,
+    REPORT_NAME_OPENAIRE_DUMP_STAGING,
+    REPORT_NAME_OPENAIRE_DUMP_STAGING_V4,
+}
 
 
 rule report_dump:

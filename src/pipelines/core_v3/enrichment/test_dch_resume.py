@@ -39,6 +39,7 @@ from pipelines.core_v3.enrichment.dch_classification import (
 
 N_ROWS = 95
 CHUNK = 10
+ID_BASE = 2**63  # real project ids are UBIGINT hashes, most above the int64 max
 
 
 def _prob(text: str) -> float:
@@ -59,10 +60,10 @@ class _FakeClassifier:
 
 def _make_db(path: Path) -> None:
     con = duckdb.connect(str(path))
-    con.execute("CREATE TABLE project (id BIGINT, title VARCHAR, acronym VARCHAR, summary VARCHAR, keywords VARCHAR, subjects VARCHAR[])")
+    con.execute("CREATE TABLE project (id UBIGINT, title VARCHAR, acronym VARCHAR, summary VARCHAR, keywords VARCHAR, subjects VARCHAR[])")
     con.executemany(
         "INSERT INTO project VALUES (?, ?, NULL, ?, NULL, NULL)",
-        [(i, f"title {i}", "s" * (i * 7 % 60)) for i in range(1, N_ROWS + 1)],
+        [(ID_BASE + i, f"title {i}", "s" * (i * 7 % 60)) for i in range(1, N_ROWS + 1)],
     )
     con.close()
 
@@ -85,7 +86,7 @@ def main() -> None:
 
         # 2. hard kill mid-append: ids of chunk 4 written, preds not, plus a torn record
         with open(ids_path, "ab") as f:
-            f.write(np.arange(31, 41, dtype=np.int64).tobytes())
+            f.write(np.arange(ID_BASE + 31, ID_BASE + 41, dtype=np.uint64).tobytes())
         with open(preds_path, "ab") as f:
             f.write(b"\x00\x01\x02")
         offset = resume_offset(db, "project", base)
@@ -96,7 +97,7 @@ def main() -> None:
         _merge_results_to_main(db, "project", base)
 
         ids, probs = read_results(base)
-        assert list(ids) == list(range(1, N_ROWS + 1)), "every row exactly once, in order"
+        assert list(ids) == list(range(ID_BASE + 1, ID_BASE + N_ROWS + 1)), "every row exactly once, in order"
         con = duckdb.connect(db, read_only=True)
         rows = con.execute("SELECT id, pred, is_ch FROM project ORDER BY id").fetchall()
         con.close()

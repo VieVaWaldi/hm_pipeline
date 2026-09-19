@@ -6,7 +6,7 @@ without a GPU.
 
 Layout: next to the final core_v3 duckdb, two append-only binary files per
 entity —
-    <db stem>_dch_<entity>_results.ids.bin    N x int64   (8 bytes/row)
+    <db stem>_dch_<entity>_results.ids.bin    N x uint64  (8 bytes/row; ids are UBIGINT hashes, > int64 max)
     <db stem>_dch_<entity>_results.preds.bin  N x float32 (4 bytes/row)
 
 Crash safety: ids are written before preds, each append is one write, so a
@@ -57,14 +57,14 @@ def repair_results(base: str) -> int:
 def append_to_results(base: str, ids: List[int], probs: List[float]) -> None:
     ids_path, preds_path = results_paths(base)
     with open(ids_path, "ab") as f:
-        f.write(np.array(ids, dtype=np.int64).tobytes())
+        f.write(np.array(ids, dtype=np.uint64).tobytes())
     with open(preds_path, "ab") as f:
         f.write(np.array(probs, dtype=np.float32).tobytes())
 
 
 def read_results(base: str) -> Tuple[np.ndarray, np.ndarray]:
     ids_path, preds_path = results_paths(base)
-    return np.fromfile(ids_path, dtype=np.int64), np.fromfile(preds_path, dtype=np.float32)
+    return np.fromfile(ids_path, dtype=np.uint64), np.fromfile(preds_path, dtype=np.float32)
 
 
 def delete_results(db_path: str) -> None:

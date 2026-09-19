@@ -30,7 +30,7 @@ dependencies = [
     "spacy",
     "SPARQLWrapper",
     "sqlalchemy==1.4.54",
-    "torch",
+    "torch>=2.10,<2.12",
     "transformers",
     "urllib3",
     "xlrd",
@@ -47,6 +47,7 @@ packages = ["src/common", "src/sources", "src/enrichment", "src/pipelines"]
 [tool.uv.sources]
 en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 # The cluster's GPU driver is 530 (CUDA 12.1); PyPI's default torch is built for CUDA 13 and can't use it.
+# torch >= 2.12 fails to create a CUDA context on driver 530 (cudaErrorDevicesUnavailable); 2.10/2.11 verified working.
 torch = { index = "pytorch-cu126" }
 
 [[tool.uv.index]]

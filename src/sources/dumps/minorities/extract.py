@@ -20,10 +20,11 @@ import re
 import time
 import logging
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import pandas as pd
 from SPARQLWrapper import SPARQLWrapper, JSON
+from SPARQLWrapper.SPARQLExceptions import EndPointInternalError
 
 from common.config.dumps import get_dumps_paths
 
@@ -32,6 +33,14 @@ log = logging.getLogger(__name__)
 
 ENDPOINT = "https://query.wikidata.org/sparql"
 USER_AGENT = "DIGICHer-MinorityDiscovery/0.2 (https://github.com/DIGICHer)"
+
+# Transient WDQS failures (rate limit, gateway errors, query timeouts) are retried
+# with exponential backoff; a query that still fails aborts the run, so we never
+# write a CSV with silently empty dimension columns.
+MAX_ATTEMPTS = 6
+BACKOFF_BASE_S = 5
+BACKOFF_MAX_S = 120
+RETRYABLE_HTTP_CODES = {429, 500, 502, 503, 504}
 
 # ---------------------------------------------------------------------------
 # European country allowlist
@@ -185,19 +194,50 @@ DIMENSION_PROPS = {
 # ---------------------------------------------------------------------------
 
 
+def _retry_delay(attempt: int, exc: Exception) -> float:
+    """Exponential backoff (5s, 10s, 20s, ...), capped; honours Retry-After on 429."""
+    delay = min(BACKOFF_BASE_S * 2 ** (attempt - 1), BACKOFF_MAX_S)
+    headers = getattr(exc, "headers", None)
+    retry_after = headers.get("Retry-After") if headers else None
+    if retry_after and str(retry_after).isdigit():
+        delay = max(delay, min(int(retry_after), BACKOFF_MAX_S))
+    return delay
+
+
 def run_query(sparql_query: str, description: str) -> list[dict]:
-    """Execute a SPARQL query and return results as a list of dicts."""
+    """Execute a SPARQL query and return results as a list of dicts.
+
+    Retries transient failures with exponential backoff and raises RuntimeError
+    if the query still fails after MAX_ATTEMPTS.
+    """
     sparql = SPARQLWrapper(ENDPOINT)
     sparql.addCustomHttpHeader("User-Agent", USER_AGENT)
     sparql.setQuery(sparql_query)
     sparql.setReturnFormat(JSON)
 
     log.info("Running query: %s ...", description)
-    try:
-        results = sparql.query().convert()
-    except HTTPError as exc:
-        log.error("  Query failed: %s", exc)
-        return []
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            results = sparql.query().convert()
+            break
+        except (HTTPError, EndPointInternalError, URLError, TimeoutError) as exc:
+            code = getattr(exc, "code", None)
+            retryable = code is None or code in RETRYABLE_HTTP_CODES
+            if isinstance(exc, EndPointInternalError):
+                retryable = True
+            if not retryable or attempt == MAX_ATTEMPTS:
+                raise RuntimeError(
+                    f"Query '{description}' failed after {attempt} attempt(s): {exc}"
+                ) from exc
+            delay = _retry_delay(attempt, exc)
+            log.warning(
+                "  Query failed (%s), attempt %d/%d; retrying in %.0fs",
+                exc,
+                attempt,
+                MAX_ATTEMPTS,
+                delay,
+            )
+            time.sleep(delay)
 
     rows = []
     for binding in results["results"]["bindings"]:

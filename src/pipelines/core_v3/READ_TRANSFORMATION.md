@@ -1,12 +1,14 @@
 # Core_v3 Transformation
 
 This document describes how to merge Cordis and ROR with OpenAire to create the core_v3 data model.
-Script: `src/elt/core_v3/transformation.py`
+Script: `src/pipelines/core_v3/transformation.py`
 
 ## General
 
-The core_v3 duckdb (`/work/lu72hip/data/duckdb/core/core_v3.duckdb`) currently contains the OpenAire staging
-tables (`organization`, `project`, `work`, `relation`) plus `topic` and `relation_topic` from TF-IDF enrichment.
+`transformation.py` seeds the core_v3 staging duckdb (`config/pipelines.yaml`'s
+`core_v3.path_staging_duck`) fresh from OpenAire staging (`organization`, `project`,
+`work`, `relation`) on every run, then merges in the columns described below. It does
+not depend on topic modelling / TF-IDF enrichment — that's a separate, later step.
 
 This transformation adds columns to existing tables — it does not create new tables.
 

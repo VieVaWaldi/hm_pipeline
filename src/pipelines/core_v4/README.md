@@ -4,10 +4,7 @@ This document specifyes core_v4.
 (Here)[] is the ADR.
 
 Core_v4 builds on core_v3, because we probably made decisions there that were import for the project, but we didnt document them.
-
-
-## Questionts I have
-* Can we measure/ note (here in this readme or where? maybe we can add that to reports but reports is static rn/ depends on no state, which is great, not sure how we d add process run time to that)
+Cordis is merged deeper and enrichment expanded. OpenSearch is served from now instead of Postgres.
 
 ## Sources:
 
@@ -17,11 +14,20 @@ Core_v4 builds on core_v3, because we probably made decisions there that were im
 * Minorities: `reports/sources/apis/cordis/minorities.md` 
 * OATopics: `reports/sources/apis/cordis/oatopics.md`
 
-## Idempotence how?
+## General
 
+**Idempotence**:
+* ... how?
 * Just make a new duckdb for each big step, that u always tear down and rebuild from scratch? @Claude if you know better tell me lol
 
---- This is the old way: ---
+**Reports**:
+* For each duckdb created make a report
+
+**Limit runs**:
+* parameter --limit -n default 1000 per entity (if thats not snakemake namespace) to make one real but fast test run
+
+Open:
+* Can we measure/ note (here in this readme or where? maybe we can add that to reports but reports is static rn/ depends on no state, which is great, not sure how we d add process run time to that)
 
 ## ... core_v4 process? ...
 

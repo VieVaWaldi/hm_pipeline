@@ -24,8 +24,15 @@ DUMP_PATHS = get_dumps_paths()
 
 
 rule download_ror_dump:
+    # Output is a marker next to the JSON, like download_openaire_dump: a real
+    # file output would re-download whenever this rule's code changes or the
+    # JSON was deleted after loading. Already have the dump? Create the marker
+    # with a timestamp older than the duckdb so load_ror_dump doesn't rerun:
+    #   touch -r <path_duck> <path_raw_marker>
     output:
-        DUMP_PATHS["ror_dump"]["path_raw"],
+        DUMP_PATHS["ror_dump"]["path_raw_marker"],
+    params:
+        raw=DUMP_PATHS["ror_dump"]["path_raw"],
     resources:
         mem_mb=4000,
         runtime=30,
@@ -33,7 +40,7 @@ rule download_ror_dump:
     log:
         str(LOGGING_PATH / "download_ror_dump.log"),
     shell:
-        "bash src/sources/dumps/ror/download.sh {output} &> {log}"
+        "bash src/sources/dumps/ror/download.sh {output} {params.raw} &> {log}"
 
 
 rule load_ror_dump:

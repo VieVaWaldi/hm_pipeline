@@ -19,7 +19,7 @@ the fine-tuned BERT model. Adds two columns to the target table:
 | Runner (duckdb glue) | `src/pipelines/core_v3/enrichment/dch_classification.py` |
 | BERT model      | `data/models/bert_classifier/` (safetensors + config.json) |
 | Tokenizer cache | `~/.cache/huggingface/hub/models--bert-base-uncased` (HPC: under the job user's home) |
-| Target DB       | core_v3's `path_staging_duck` (see `config/pipelines.yaml`) — the runner reads this from config, not a CLI flag |
+| Target DB       | core_v3's `path_duck` (final), a fresh copy of `path_duck_staging_2` made by the runner (see `config/pipelines.yaml`) — read from config, not a CLI flag |
 
 ## How to run
 

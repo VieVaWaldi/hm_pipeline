@@ -11,9 +11,9 @@ rules/dumps.smk     ↔ src/sources/dumps/
 rules/external/     ↔ src/sources/external/
 rules/pipeline/     ↔ pipeline-level code — the merge/enrichment/model/serve
 stages, each version's own rules/pipeline/core_vN/. core_v3's data model is
-frozen (see src/pipelines/core_v3/README.md), but its enrichment/ subpackage
-is real, runnable glue — enrichment is prep for core_v4, proven against
-core_v3's real data in the meantime.
+frozen (see src/pipelines/core_v3/README.md), but its merge and enrichment/
+subpackage are real, runnable glue — enrichment is prep for core_v4, proven
+against core_v3's real data in the meantime. `snakemake core_v3` runs it all.
 
 Each pipeline version gets its own rules/pipeline/core_vN/ once that version has real rules,
 rather than stubbing them out in advance.
@@ -51,6 +51,7 @@ LOGGING_PATH = get_settings().logging_path
 include: "rules/api_runner/extract.smk"
 include: "rules/api_runner/load.smk"
 include: "rules/dumps.smk"
+include: "rules/pipeline/core_v3/merge.smk"
 include: "rules/pipeline/core_v3/enrichment.smk"
 include: "rules/external/meta_heritage.smk"
 
@@ -93,6 +94,25 @@ rule sources_dev:
         f"reports/sources/dumps/{REPORT_NAME_ROR_DUMP}.md",
         f"reports/sources/dumps/{REPORT_NAME_MINORITIES}.md",
         f"reports/sources/dumps/{REPORT_NAME_OA_TOPICS}.md",
+
+
+# core_v3, end to end: sources -> transformation (core_v3_staging.duckdb) ->
+# seed_topics + topic_modelling (core_v3_staging_2.duckdb) -> dch_classification
+# (core_v3.duckdb) -> one report per duckdb. The merge pulls in the openaire
+# staging, ror and cordis loads it reads; their source reports are listed too.
+# Doesn't depend on the core_v4_sources rules below. HPC-only (openaire).
+#   ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm core_v3
+# Smoke test on a sample (overwrites core_v3's duckdbs, see merge.smk):
+#   ... core_v3 --config limit=500
+rule core_v3:
+    input:
+        f"reports/sources/apis/cordis/{CORE_V3_CORDIS_QUERY_ID}.md",
+        f"reports/sources/dumps/{REPORT_NAME_ROR_DUMP}.md",
+        f"reports/sources/dumps/{REPORT_NAME_OPENAIRE_DUMP}.md",
+        expand("reports/pipelines/core_v3/{stage}.md", stage=CORE_V3_REPORT_STAGES),
+
+
+### --- Below here is not tested, should not be used yet --- ###
 
 
 # core_v4_sources source set: cordis's "all cordis docs" query

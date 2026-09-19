@@ -1,15 +1,22 @@
 #!/bin/bash
 # Downloads the ROR data dump from Zenodo and extracts it in place.
 #
-# Usage: bash download.sh <target-json-path>
-#   <target-json-path> is the resolved path_raw from config/dumps.yaml
-#   (dev: project-relative; prod: under hpc_root) — Snakemake passes it as
-#   the rule's `output:`. Bump ZENODO_RECORD/ZIP_FILE together when a new
-#   ROR version is published, and update config/dumps.yaml's ror_dump.path_raw
-#   to match the new file name — see documentation/ for version history.
+# Usage: bash download.sh <marker-file> <target-json-path>
+#   <marker-file> is the resolved path_raw_marker from config/dumps.yaml, a
+#   sentinel next to the JSON — Snakemake passes it as the rule's `output:`
+#   (same pattern as the openaire download). Snakemake tracks the marker
+#   rather than the JSON so a rule edit or a deleted JSON never triggers a
+#   re-download; to skip this download for a dump you already have, just
+#   create the marker (see the note in orchestration/rules/dumps.smk).
+#   <target-json-path> is path_raw (dev: project-relative; prod: under
+#   hpc_root), checked for after extraction. Bump ZENODO_RECORD/ZIP_FILE
+#   together when a new ROR version is published, and update config/dumps.yaml's
+#   ror_dump.path_raw and path_raw_marker to match the new file/dir name —
+#   see documentation/ for version history.
 set -euo pipefail
 
-TARGET_FILE="$1"
+MARKER="$1"
+TARGET_FILE="$2"
 DOWNLOAD_DIR="$(dirname "$TARGET_FILE")"
 
 ZENODO_RECORD="21773148"
@@ -36,4 +43,5 @@ if [ ! -f "$TARGET_FILE" ]; then
     exit 1
 fi
 
+touch "$MARKER"
 echo "Done: $TARGET_FILE"

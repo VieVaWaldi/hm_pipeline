@@ -2,10 +2,15 @@
 Core v3 Transformation — seeds core_v3's staging duckdb from OpenAire staging,
 then merges in ROR + Cordis columns.
 
-core_v3 targets running end-to-end through this merge stage on real data — it does
-NOT include serving (the old export-to-postgres step is gone; core_v4 gets a real
-duckdb -> OpenSearch serve stage). Not wired into Snakemake orchestration — run
+core_v3 does NOT include serving (the old export-to-postgres step is gone;
+core_v4 gets a real duckdb -> OpenSearch serve stage). Wired into Snakemake as
+`core_v3_transformation` (orchestration/rules/pipeline/core_v3/merge.smk), or run
 directly via `python -m`.
+
+The target (`core_v3.path_duck_staging`) is deleted and rebuilt from scratch on every
+run — nothing enriches it (enrichment works on copies, see enrichment.smk), so
+there is nothing in it worth keeping. Also deletes the DCH classification resume
+files (enrichment/dch_results.py): they're keyed to the rows this run rebuilds.
 
 Seed (fresh copy, no new columns):
   - organization, project, work, relation <- OpenAire staging (see
@@ -19,6 +24,7 @@ See READ_TRANSFORMATION.md for full design rationale and EDA results.
 
 Usage:
     uv run python -m pipelines.core_v3.transformation                # full run
+    uv run python -m pipelines.core_v3.transformation --mem-mb 64000 --threads 8   # smaller machine
     uv run python -m pipelines.core_v3.transformation --limit 500    # smoke test:
         500 rows per OpenAire entity, ROR/Cordis still joined in full (per the
         "Limit Runs" convention in the root README) — relations end up sparse
@@ -44,6 +50,18 @@ from common.config.dumps import get_dumps_paths
 from common.config.pipelines import get_pipeline_paths
 from common.log.logger import setup_logging
 from common.log.timer import log_run_time
+from pipelines.core_v3.enrichment.dch_results import delete_results
+from pipelines.core_v3.resources import add_resource_args, apply_duckdb_limits
+
+
+def _reset_outputs(core_db: Path, final_db: Path) -> None:
+    """Tear down and rebuild: removes the staging duckdb (and a leftover WAL) and any
+    DCH resume files from a previous run of core_v3."""
+    for path in (core_db, core_db.with_name(core_db.name + ".wal")):
+        if path.exists():
+            logging.info(f"Removing previous {path}")
+            path.unlink()
+    delete_results(str(final_db))
 
 
 def main() -> None:
@@ -59,11 +77,13 @@ def main() -> None:
         "(organization/project/work/relation) into core_v3. ROR and Cordis are "
         "always joined in full — they're attached read-only, never copied.",
     )
+    add_resource_args(parser, default_threads=32)
     args = parser.parse_args()
 
     setup_logging("transformation", "core_v3")
 
-    core_db = Path(get_pipeline_paths()["core_v3"]["path_staging_duck"])
+    core_db = Path(get_pipeline_paths()["core_v3"]["path_duck_staging"])
+    final_db = Path(get_pipeline_paths()["core_v3"]["path_duck"])
     ror_db = Path(get_dumps_paths()["ror_dump"]["path_duck"])
     cordis_db = Path(get_query_settings()["cordis"].queries["full_projects_no_pdfs"].path_duck)
     openaire_staging_db = Path(get_dumps_paths()["openaire_dump"]["path_duck_staging_2"])
@@ -73,13 +93,14 @@ def main() -> None:
     logging.info(f"OpenAire staging: {openaire_staging_db}")
     logging.info(f"ROR:              {ror_db}")
     logging.info(f"Cordis:           {cordis_db}")
+    logging.info(f"Resources:        {args.mem_mb:,} MB, {args.threads} threads")
     if args.limit:
         logging.info(f"LIMIT mode: {args.limit} rows per OpenAire entity")
 
     core_db.parent.mkdir(parents=True, exist_ok=True)
+    _reset_outputs(core_db, final_db)
     con = duckdb.connect(str(core_db))
-    con.execute("SET memory_limit='160GB'")
-    con.execute("SET threads=32")
+    apply_duckdb_limits(con, args.mem_mb, args.threads)
 
     try:
         con.execute(f"ATTACH '{openaire_staging_db}' AS openaire (READ_ONLY)")

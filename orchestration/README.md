@@ -16,7 +16,8 @@ orchestration/
 │   │   └── meta_heritage.smk       # postgres-backed, not core_v4 scope, own scripts
 │   └── pipeline/                   # ↔ pipeline-level code, not a source at all
 │       └── core_v3/
-│           └── enrichment.smk      # duckdb-native enrichment, runs against core_v3's real data
+│           ├── merge.smk           # transformation -> core_v3_staging.duckdb (+ shared CORE_V3_* resources)
+│           └── enrichment.smk      # seed_topics, topic_modelling, dch_classification, reports
 ├── envs/                           # per-rule container images (empty until core_v4 rules exist)
 └── profiles/slurm/                 # SLURM executor config for HPC runs
 ```
@@ -41,7 +42,7 @@ uv run snakemake --workflow-profile orchestration/profiles/slurm all
 `all` covers incremental extraction/loading (each source's own report, via
 `report_source`) plus the versioned bulk dumps (ror_dump, openaire_dump,
 minorities, oa_topics, each via `report_dump`). It does **not** include
-`openalex_dump` (corev5 scope), `rules/pipeline/core_v3/enrichment.smk`, or
+`openalex_dump` (corev5 scope), `rules/pipeline/core_v3/`, or
 `meta_heritage.smk` (all postgres-backed, run by name only) — see each rule
 file's docstring.
 
@@ -88,6 +89,17 @@ ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm \
     core_v4_sources --forcerun load_source load_ror_dump load_openaire_dump
 ```
 
+### core_v3
+
+`core_v3` runs the whole core_v3 chain — sources → merge → enrichment (topics, DCH on a GPU node) → one
+report per duckdb — see `src/pipelines/core_v3/README.md` for the chain and resume behaviour. HPC-only
+(openaire), not part of `all`:
+
+```bash
+ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm core_v3
+ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm core_v3 --config limit=500  # sample run
+```
+
 ### Running Individually
 
 **api_runner:**
@@ -104,6 +116,9 @@ uv run python -m common.api_runner.run_loader --source <source> --query_id <quer
 
 ```bash
 # ror: download raw dump, then load into duckdb
+# (download is tracked by a .download_complete marker, like openaire. Already have the
+# dump and its duckdb? Skip the download: touch -r <ror_raw.duckdb> <marker from config/dumps.yaml>,
+# then once: snakemake --cleanup-metadata <absolute path to ror_raw.duckdb>)
 uv run snakemake -s orchestration/Snakefile --cores 4 download_ror_dump
 uv run snakemake -s orchestration/Snakefile --cores 4 load_ror_dump
 
@@ -156,6 +171,6 @@ Once a pipeline version has real stages (`pipelines/core_v4/{merge,analysis,
 enrichment,model,serve}`), add `rules/pipeline/core_vN/*.smk` for that version
 rather than stubbing them out in advance — the DAG should only describe what's
 actually runnable. `pipelines/core_v3/`'s data model itself is frozen (its
-`transformation.py` merge is standalone, not a rule), but its `enrichment/`
-subpackage is wired via `rules/pipeline/core_v3/enrichment.smk` — enrichment
-is prep for core_v4, proven against core_v3's real data until core_v4 exists.
+`transformation.py` merge is `merge.smk`), and its `enrichment/` subpackage is wired via
+`rules/pipeline/core_v3/enrichment.smk` — enrichment is prep for core_v4, proven against
+core_v3's real data until core_v4 exists.

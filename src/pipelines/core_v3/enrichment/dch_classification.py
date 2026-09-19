@@ -10,7 +10,13 @@ Resumability: results are appended to binary files after each chunk
 its background-thread tokeniser/GPU pipelining still overlaps within a chunk),
 not held in memory for the whole run. A crash loses at most one chunk of GPU
 compute, not the whole job. The final merge into the real table happens once,
-after all chunks are done.
+after all chunks are done. The files live in dch_results.py, which also
+explains why they survive a failed run (and Snakemake deleting the duckdb).
+
+Writes into core_v3's final duckdb (`path_duck`), which every run starts as a
+fresh copy of core_v3_staging_2 — progress lives in the resume files, not in
+the duckdb, so the copy is safe to redo after a crash. --test reads staging_2
+directly and copies nothing.
 
 Usage:
     uv run python -m pipelines.core_v3.enrichment.dch_classification
@@ -20,53 +26,32 @@ Usage:
 
 import argparse
 import logging
-import os
-from pathlib import Path
-from typing import List, Tuple
 
 import duckdb
-import numpy as np
 import pandas as pd
 
 from common.config.pipelines import get_pipeline_paths
 from common.file_handling.path_utils import get_project_root_path
 from common.log.logger import setup_logging
 from enrichment.dch_classification.dch_classifier import DEFAULT_BATCH_SIZE, DchClassifier
+from pipelines.core_v3.db_copy import fresh_copy
+from pipelines.core_v3.enrichment.dch_results import (
+    append_to_results,
+    read_results,
+    repair_results,
+    results_base,
+)
 from pipelines.core_v3.enrichment.text_sources import Entity, all_text_rows
 
 THRESHOLD = 0.5  # P(is DCH) >= threshold  →  is_ch = True
 CHUNK_ROWS = 20 * DEFAULT_BATCH_SIZE
 
 
-# Binary results files written during inference — avoids any DuckDB/CUDA threading conflict.
-# ids_path  : N × int64   (8 bytes/row)
-# preds_path: N × float32 (4 bytes/row)
-def _results_paths(base: str) -> Tuple[str, str]:
-    return base + ".ids.bin", base + ".preds.bin"
-
-
-def _results_row_count(base: str) -> int:
-    ids_path, _ = _results_paths(base)
-    if not os.path.exists(ids_path):
-        return 0
-    return os.path.getsize(ids_path) // 8
-
-
-def _append_to_results(results_base: str, ids: List[int], probs: List[float]) -> None:
-    ids_path, preds_path = _results_paths(results_base)
-    with open(ids_path, "ab") as f:
-        f.write(np.array(ids, dtype=np.int64).tobytes())
-    with open(preds_path, "ab") as f:
-        f.write(np.array(probs, dtype=np.float32).tobytes())
-
-
-def _merge_results_to_main(db_path: str, entity: Entity, results_base: str) -> None:
+def _merge_results_to_main(db_path: str, entity: Entity, results_path: str) -> None:
     """One-shot merge: UPDATE the target table from the binary results files.
     Run once after all inference is complete — no threading at this point."""
-    ids_path, preds_path = _results_paths(results_base)
-    logging.info(f"Loading results from {ids_path} ...")
-    ids = np.frombuffer(open(ids_path, "rb").read(), dtype=np.int64)
-    probs = np.frombuffer(open(preds_path, "rb").read(), dtype=np.float32)
+    logging.info(f"Loading results from {results_path} ...")
+    ids, probs = read_results(results_path)
     df = pd.DataFrame({"id": ids, "is_ch": (probs >= THRESHOLD), "pred": probs})
 
     logging.info(f"Merging {len(df):,} rows into {entity} table of {db_path} ...")
@@ -101,10 +86,33 @@ def run_classification(classifier: DchClassifier, db_path: str, entity: Entity, 
         texts = [row[1] for row in chunk]
 
         probs = classifier.enrich(texts)
-        _append_to_results(results_path, ids, probs)
+        append_to_results(results_path, ids, probs)
 
         total += len(chunk)
         logging.info(f"Chunk #{chunk_idx // CHUNK_ROWS:>5}  size={len(chunk):>6,}  total={total:>9,}/{len(rows):,}")
+
+
+def resume_offset(db_path: str, entity: Entity, results_path: str) -> int:
+    """How many rows (in id order) are already classified, whether that's recorded
+    in the duckdb, the resume files, or both."""
+    con = duckdb.connect(db_path, read_only=True)
+    try:
+        already_in_main = con.execute(f"SELECT count(*) FROM {entity} WHERE is_ch IS NOT NULL").fetchone()[0]
+    except Exception:
+        already_in_main = 0
+    con.close()
+
+    # A killed run can leave the two files out of step or with a torn last record.
+    already_in_results = repair_results(results_path)
+    # Rows in the DB were merged *from* the results files (which aren't deleted
+    # after the merge), so the two overlap — not add — when both are present.
+    # The DB is empty after a failed Snakemake job or a fresh copy from staging_2.
+    offset = max(already_in_main, already_in_results)
+    logging.info(
+        f"Already classified: {already_in_main:,} in main DB, {already_in_results:,} in results file "
+        f"→ resuming from offset {offset:,}"
+    )
+    return offset
 
 
 def run_test(classifier: DchClassifier, db_path: str, entity: Entity, n_rows: int) -> None:
@@ -138,7 +146,8 @@ def main() -> None:
     args = parser.parse_args()
 
     setup_logging("enrichment-dch_classification", "bert_inference")
-    db_path = get_pipeline_paths()["core_v3"]["path_staging_duck"]
+    paths = get_pipeline_paths()["core_v3"]
+    db_path = paths["path_duck_staging_2"] if args.test else paths["path_duck"]
     logging.info(f"Mode   : {'TEST (no writes)' if args.test else 'PRODUCTION'}")
     logging.info(f"DB path: {db_path}  entity: {args.entity}")
 
@@ -149,22 +158,12 @@ def main() -> None:
         run_test(classifier, db_path, args.entity, n_rows=args.test)
         return
 
-    results_path = str(Path(db_path).with_suffix("")) + f"_dch_{args.entity}_results"
+    fresh_copy(paths["path_duck_staging_2"], db_path)
+
+    results_path = results_base(db_path, args.entity)
     logging.info(f"Results base: {results_path}")
 
-    con = duckdb.connect(db_path, read_only=True)
-    try:
-        already_in_main = con.execute(f"SELECT count(*) FROM {args.entity} WHERE is_ch IS NOT NULL").fetchone()[0]
-    except Exception:
-        already_in_main = 0
-    con.close()
-
-    already_in_results = _results_row_count(results_path)
-    offset_start = already_in_main + already_in_results
-    logging.info(
-        f"Already classified: {already_in_main:,} in main DB + {already_in_results:,} in results file "
-        f"→ resuming from offset {offset_start:,}"
-    )
+    offset_start = resume_offset(db_path, args.entity, results_path)
 
     run_classification(classifier, db_path, args.entity, results_path, offset_start)
 

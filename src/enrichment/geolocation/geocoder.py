@@ -1,18 +1,15 @@
 """
 Institution geolocation — pure Enricher, no duckdb or pipeline-table knowledge.
 
-Tiers, cheapest first:
-  1. Offline fuzzy name match against reference records (NameMatcher — ROR
-     names/aliases in practice). Free, no network.
-  2. Mapbox forward geocoding, only for queries that carry a city + country
-     (Mapbox is an address geocoder — a bare company name gives junk), only
-     when a request budget was granted (default 0 = never spend), and always
-     with permanent=true: Mapbox forbids storing temporary-geocoding results,
-     and we store these in duckdb. Permanent is billed ($5 / 1,000 requests up
-     to 500k, then $4 / 1,000 — mapbox.com/pricing).
+Mapbox forward geocoding, only for queries that carry a city + country
+(Mapbox is an address geocoder — a bare company name gives junk), only
+when a request budget was granted (default 0 = never spend), and always
+with permanent=true: Mapbox forbids storing temporary-geocoding results,
+and we store these in duckdb. Permanent is billed ($5 / 1,000 requests up
+to 500k, then $4 / 1,000 — mapbox.com/pricing).
 
 OpenAlex is deliberately not queried: its institution coordinates are GeoNames
-city points reached via ROR, which the offline tier already covers.
+city points reached via ROR, which the core_v3 merge already carries over.
 """
 
 import logging
@@ -22,11 +19,9 @@ from dataclasses import dataclass
 from typing import Iterable, List, Optional
 
 from common.requests.requests import make_get_request
-from enrichment.geolocation.name_matcher import NameMatcher
 from enrichment.interface import Enricher
 
 _MAPBOX_URL = "https://api.mapbox.com/search/geocode/v6/forward"
-_HIGH_CONFIDENCE_SCORE = 97
 
 
 @dataclass
@@ -44,8 +39,8 @@ class GeolocationResult:
     id: int
     latitude: float
     longitude: float
-    source: str  # "RorNameMatch" | "Mapbox"
-    confidence: str  # "high" | "medium"
+    source: str  # "Mapbox"
+    confidence: str  # "medium"
 
 
 class GeolocationEnricher(Enricher[InstitutionQuery, GeolocationResult]):
@@ -55,35 +50,16 @@ class GeolocationEnricher(Enricher[InstitutionQuery, GeolocationResult]):
 
     def __init__(
         self,
-        matcher: Optional[NameMatcher] = None,
         mapbox_token: Optional[str] = None,
         max_mapbox_requests: int = 0,
         mapbox_workers: int = 4,  # ~12 req/s, under Mapbox's default 1,000 req/min
     ):
-        self._matcher = matcher
         self._mapbox_token = mapbox_token if mapbox_token is not None else os.getenv("API_KEY_MAPBOX")
         self._mapbox_requests_left = max_mapbox_requests
         self._mapbox_workers = mapbox_workers
 
     def enrich(self, items: Iterable[InstitutionQuery]) -> List[GeolocationResult]:
-        items = list(items)
-        results: List[GeolocationResult] = []
-
-        remaining = items
-        if self._matcher is not None:
-            remaining = []
-            matches = self._matcher.match_many([(q.name, q.country) for q in items])
-            for query, match in zip(items, matches):
-                if match is None:
-                    remaining.append(query)
-                    continue
-                confidence = "high" if match.score >= _HIGH_CONFIDENCE_SCORE else "medium"
-                results.append(
-                    GeolocationResult(query.id, match.latitude, match.longitude, "RorNameMatch", confidence)
-                )
-
-        results.extend(self._mapbox_many(remaining))
-        return results
+        return self._mapbox_many(list(items))
 
     def _mapbox_many(self, queries: List[InstitutionQuery]) -> List[GeolocationResult]:
         if not self._mapbox_token or self._mapbox_requests_left <= 0:

@@ -1,4 +1,4 @@
 core_v3:
-  path_staging_duck: data/duckdb/core/core_v3.duckdb
-  path_topics_duck: data/duckdb/core/core_v3_topics.duckdb
-  path_final_duck: data/duckdb/core/core_v3_final.duckdb
+  path_duck_staging: data/duckdb/core/core_v3_staging.duckdb      # right after transformation (merge output, never enriched)
+  path_duck_staging_2: data/duckdb/core/core_v3_staging_2.duckdb  # + seed_topics, topic_modelling
+  path_duck: data/duckdb/core/core_v3.duckdb                      # + dch_classification (final)

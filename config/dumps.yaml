@@ -11,6 +11,7 @@ openalex_dump:
 ror_dump:
   version: "2026_08_03"
   path_raw: data/pile/ror_2026_08_03_dump/v2.11-2026-08-03-ror-data.json
+  path_raw_marker: data/pile/ror_2026_08_03_dump/.download_complete
   path_duck: data/duckdb/sources/ror_raw.duckdb
 minorities:
   path_raw: data/pile/minorities/minorities.csv

@@ -6,7 +6,7 @@ Script: `src/pipelines/core_v3/transformation.py`
 ## General
 
 `transformation.py` seeds the core_v3 staging duckdb (`config/pipelines.yaml`'s
-`core_v3.path_staging_duck`) fresh from OpenAire staging (`organization`, `project`,
+`core_v3.path_duck_staging`, deleted and rebuilt from scratch every run) from OpenAire staging (`organization`, `project`,
 `work`, `relation`) on every run, then merges in the columns described below. It does
 not depend on topic modelling / TF-IDF enrichment — that's a separate, later step.
 

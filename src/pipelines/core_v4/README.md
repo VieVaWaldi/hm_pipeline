@@ -1,5 +1,9 @@
 # Core_v4 Strategy
 
+! Not a target yet! WIP !
+
+---
+
 This document specifies core_v4.
 See the [ADR](...) for more.
 
@@ -46,7 +50,7 @@ Open:
     * From Cordis only institution level funding information for projects is needed from `j_project_institution`
     * From ROR organization information like geolocation and others are needed.
 2. Enrichment
-    * TFIdf Topic Classification using `../../enrichment/topic_modelling` -> I did this before step 5 so the intermediate core file is called path_topics_duck in the config.
+    * TFIdf Topic Classification using `../../enrichment/topic_modelling` -> I did this before step 5 so the intermediate core file is called path_duck_staging_2 in the config.
     * CH Classification
 3. And finally a deployment from duckdb to postgresdb
 

@@ -23,7 +23,6 @@ dependencies = [
     "python-dateutil",
     "python-dotenv",
     "pyyaml",
-    "rapidfuzz>=3.14.6",
     "scikit-learn",
     "selenium",
     "snakemake",

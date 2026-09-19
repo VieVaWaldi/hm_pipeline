@@ -23,11 +23,19 @@ cp .env.example .env
 
 ```bash
 # -n -p dry-runs and prints shell commands
+# Full core_v3 (sources -> merge -> enrichment -> reports), HPC
+ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm core_v3
 
+# Same on a sample of 500 rows per entity (overwrites core_v3's duckdbs)
+ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm core_v3 --config limit=500
+
+# Or just the merge, directly
+ENV=prod uv run python -m pipelines.core_v3.transformation --limit 500
+```
+
+```bash
 # To test the entire pipeline
 uv run snakemake -n -p -s orchestration/Snakefile all
-# To limit run core_v3 transformation
-ENV=prod uv run python -m pipelines.core_v3.transformation --limit 500
 
 # Run individual dump rules with (load_minorities, load_oa_topics, load_ror_dump, load_openaire_dump)
 uv run snakemake -s orchestration/Snakefile load_ror_dump

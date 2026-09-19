@@ -2,7 +2,7 @@
 Lightweight verification script for topic modelling. Safe for a login node:
 single process, tiny batches, temp DB, no ProcessPoolExecutor.
 
-Copies a small slice of core_v3's real staging db into a scratch duckdb, then
+Copies a small slice of core_v3's staging db (right after transformation) into a scratch duckdb, then
 runs the same classifier used in production against it. Never touches the
 source database.
 
@@ -33,7 +33,7 @@ N_ROWS = 20
 def main() -> None:
     setup_logging("enrichment-topic_modelling", "test")
 
-    src_db_path = get_pipeline_paths()["core_v3"]["path_staging_duck"]
+    src_db_path = get_pipeline_paths()["core_v3"]["path_duck_staging"]
     logging.info(f"Source DB: {src_db_path}")
 
     tmp_dir = tempfile.mkdtemp()

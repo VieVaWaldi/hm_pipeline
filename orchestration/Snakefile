@@ -47,46 +47,49 @@ include: "rules/external/meta_heritage.smk"
 
 rule all:
     input:
-        rules.load_incremental_sources.input,
+        _report_targets(),
         rules.ingest_dumps.input,
         f"reports/sources/dumps/{REPORT_NAME_MINORITIES}.md",
         f"reports/sources/dumps/{REPORT_NAME_OA_TOPICS}.md",
 
 
-# Sources left out of `sources_local` (see below): coreac isn't ready for an
+# Sources left out of `sources_dev` (see below): coreac isn't ready for an
 # unattended default run, and the openaire dump is excluded structurally —
-# `sources_local` simply never lists `stage_openaire_dump`/`ingest_dumps` as
+# `sources_dev` simply never lists `stage_openaire_dump`/`ingest_dumps` as
 # input, since it's 100s of GB and HPC-only (run `load_openaire_dump` /
 # `stage_openaire_dump` by name on the HPC instead — see orchestration/README.md).
 LOCAL_EXCLUDE_SOURCES = ["coreac"]
 
 
-rule extract_sources_local:
-    """Extraction-only half of sources_local: pulls raw data (api extract +
+rule extract_sources_dev:
+    """Extraction-only half of sources_dev: pulls raw data (api extract +
     ror download + minorities discovery) but doesn't load anything into
-    duckdb."""
+    duckdb. oa_topics has no extraction step of its own (its CSV is placed
+    manually), so its raw path is listed directly here."""
     input:
         _extract_targets(exclude=LOCAL_EXCLUDE_SOURCES),
         rules.download_ror_dump.output,
         rules.discover_minorities_candidates.output,
+        DUMP_PATHS["oa_topics"]["path_raw"],
 
 
-rule sources_local:
+rule sources_dev:
     """Local-dev-safe extract + load target: every incremental api source
-    except LOCAL_EXCLUDE_SOURCES, plus the ror dump and minorities.
+    except LOCAL_EXCLUDE_SOURCES, plus the ror dump, minorities, and oa_topics.
     Deliberately a narrower set than `all` — `all` still includes coreac and
     the openaire dump for full/HPC runs."""
     input:
-        _load_targets(exclude=LOCAL_EXCLUDE_SOURCES),
+        _report_targets(exclude=LOCAL_EXCLUDE_SOURCES),
         f"reports/sources/dumps/{REPORT_NAME_ROR_DUMP}.md",
         f"reports/sources/dumps/{REPORT_NAME_MINORITIES}.md",
+        f"reports/sources/dumps/{REPORT_NAME_OA_TOPICS}.md",
 
 
 # core_v3_sources source set: cordis's "all cordis docs" query
 # (full_projects_no_pdfs, no pdf subset) plus the ror and openaire dumps. Used
 # to verify loader idempotency ahead of the core_v3 rebuild -- sources only,
 # not the core_v3 pipeline itself (see rules/pipeline/core_v3/enrichment.smk
-# for that). Unlike `sources_local` this includes openaire, so it's HPC-only
+# for that). Unlike `sources_dev` this includes openaire, so it's HPC-only
 # (run with --workflow-profile orchestration/profiles/slurm), not part of the
 # local-dev-safe set.
 CORE_V3_SOURCES_EXCLUDE = ["arxiv", "coreac"]
@@ -102,24 +105,9 @@ rule extract_core_v3_sources:
 
 
 rule core_v3_sources:
-    """Extract + load target: cordis (full_projects_no_pdfs only) + ror_dump +
-    openaire_dump. See extract_core_v3_sources."""
+    """Extract + load + report target: cordis (full_projects_no_pdfs only) +
+    ror_dump + openaire_dump. See extract_core_v3_sources."""
     input:
-        _load_targets(exclude=CORE_V3_SOURCES_EXCLUDE, only_queries=CORE_V3_SOURCES_QUERY_OVERRIDES),
+        _report_targets(exclude=CORE_V3_SOURCES_EXCLUDE, only_queries=CORE_V3_SOURCES_QUERY_OVERRIDES),
         f"reports/sources/dumps/{REPORT_NAME_ROR_DUMP}.md",
         f"reports/sources/dumps/{REPORT_NAME_OPENAIRE_DUMP}.md",
-
-
-rule report_core_v3_sources:
-    """core_v3_sources, then the per-source data-profile reports (see
-    src/common/report/). generate_reports scans every configured duckdb file,
-    not just this target's -- this rule only sequences it to run after the
-    load finishes. No real output of its own, so it's a touch() sentinel (see
-    orchestration/README.md "Sentinels"); re-run this rule with --forcerun
-    whenever you want fresh reports regardless of the sentinel's age."""
-    input:
-        rules.core_v3_sources.input,
-    output:
-        touch(".snakemake/sentinels/core_v3_sources/report_done"),
-    shell:
-        "python -m common.report.generate_reports"

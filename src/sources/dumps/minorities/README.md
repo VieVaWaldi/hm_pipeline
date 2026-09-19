@@ -75,7 +75,7 @@ uv run python src/sources/dumps/minorities/loader.py
 ```
 
 Or via Snakemake — see `orchestration/rules/dumps.smk`. Unlike
-`meta_heritage`, this source is wired into `rule all` / `sources_local`, and
+`meta_heritage`, this source is wired into `rule all` / `sources_dev`, and
 `generate_reports.py` picks up `reports/sources/dumps/minorities.md`
 automatically since it's a `config/dumps.yaml` entry.
 

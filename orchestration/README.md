@@ -38,23 +38,26 @@ On the HPC:
 uv run snakemake --workflow-profile orchestration/profiles/slurm all
 ```
 
-`all` covers incremental extraction/loading plus the versioned bulk dumps
-(ror_dump, openaire_dump, minorities, oa_topics). It does **not** include
+`all` covers incremental extraction/loading (each source's own report, via
+`report_source`) plus the versioned bulk dumps (ror_dump, openaire_dump,
+minorities, oa_topics, each via `report_dump`). It does **not** include
 `openalex_dump` (corev5 scope), `rules/pipeline/core_v3/enrichment.smk`, or
 `meta_heritage.smk` (all postgres-backed, run by name only) — see each rule
 file's docstring.
 
-`sources_local` / `extract_sources_local` are a narrower, local-dev-safe
-subset of `all`: every incremental api source except `LOCAL_EXCLUDE_SOURCES`
-(currently just `coreac`), plus `ror_dump` and `minorities` — no `coreac`, no
-`openaire_dump`, no `oa_topics` (its raw file is manually placed with no
-producing rule, so it'd hard-fail on a fresh clone that hasn't placed it yet).
-The openaire dump is 100s of GB and HPC-only (see "Running Individually"
-below); coreac just isn't part of the default local run.
+`sources_dev` / `extract_sources_dev` are a narrower, local-dev-safe subset
+of `all`: every incremental api source except `LOCAL_EXCLUDE_SOURCES`
+(currently just `coreac`), plus `ror_dump`, `minorities`, and `oa_topics` — no
+`coreac`, no `openaire_dump`. `oa_topics`'s CSV has no producing rule (placed
+manually), so both targets list its raw/report path directly rather than
+going through a download step — make sure it's actually in
+`data/pile/oa_topics/` on a fresh clone before running these. The openaire
+dump is 100s of GB and HPC-only (see "Running Individually" below); coreac
+just isn't part of the default local run.
 
 ```bash
-uv run snakemake -s orchestration/Snakefile --cores 4 extract_sources_local  # extract only
-uv run snakemake -s orchestration/Snakefile --cores 4 sources_local          # extract + load + reports
+uv run snakemake -s orchestration/Snakefile --cores 4 extract_sources_dev  # extract only
+uv run snakemake -s orchestration/Snakefile --cores 4 sources_dev          # extract + load + reports
 ```
 
 `core_v3_sources` / `extract_core_v3_sources` are a separate, HPC-only source
@@ -62,11 +65,11 @@ set used to verify loader idempotency ahead of the core_v3 rebuild: cordis
 restricted to its `full_projects_no_pdfs` query ("all cordis docs", no pdf
 subset) plus `ror_dump` and `openaire_dump` — no `arxiv`, no `coreac`. Sources
 only, not the core_v3 pipeline itself (see `rules/pipeline/core_v3/enrichment.smk`
-for that, under "Running Individually" below). Unlike `sources_local` this
+for that, under "Running Individually" below). Unlike `sources_dev` this
 includes openaire, so run it with `--workflow-profile orchestration/profiles/slurm`.
-`report_core_v3_sources` chains an unconditional full `generate_reports.py`
-regen on top — same tool the per-source `report_dump` rule uses, just
-ungated by staleness, for when you want everything refreshed regardless.
+Both extract + load + reports are covered directly by `core_v3_sources`'s own
+input list (via `report_source`/`report_dump`), so there's no separate
+report-chaining rule to run afterward.
 
 `core_v3_sources` only makes sense against the real `/work/lu72hip` data, so
 run it with `ENV=prod` explicitly rather than relying on `get_settings()`'s
@@ -132,8 +135,7 @@ uv run snakemake -s orchestration/Snakefile --cores 4 "reports/sources/dumps/ror
 ```
 
 For a full unconditional regen of every configured duckdb's report regardless
-of staleness, use the underlying script directly (see also
-`report_core_v3_sources` above):
+of staleness, use the underlying script directly:
 
 ```bash
 uv run python -m common.report.generate_reports

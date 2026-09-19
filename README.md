@@ -5,17 +5,18 @@ A data pipeline, data model and warehouse for the [Heritage Monitor](https://her
 ## Orchestration
 
 ```bash
-uv run snakemake -s orchestration/Snakefile --cores 4 extract_sources_local  # extraction only
-uv run snakemake -s orchestration/Snakefile --cores 4 sources_local          # load, then per-source reports
-```
+# -n -p dry-runs and prints shell commands.
 
-```bash
+# For DEV 
+uv run snakemake -s orchestration/Snakefile --cores 4 extract_sources_dev  # extraction only
+uv run snakemake -s orchestration/Snakefile --cores 4 sources_dev          # load, then per-source reports
+
+# For PROD (HPC) --workflow-profile orchestration/profiles/slurm
+uv run snakemake -s orchestration/Snakefile --cores 4 extract_core_v3_sources # extraction only
+uv run snakemake -s orchestration/Snakefile --cores 4 core_v3_sources         # load, then per-source reports
+
 # to just get reports for all duckdb files
 uv run python -m common.report.generate_reports
-```
-
-```bash
-ENV=prod uv run snakemake --workflow-profile orchestration/profiles/slurm core_v3_sources
 ```
 
 Go to [Orchestration Documentation](orchestration/README.md) for more snakemake commands.

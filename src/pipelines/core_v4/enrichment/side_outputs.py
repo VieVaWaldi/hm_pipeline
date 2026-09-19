@@ -20,21 +20,58 @@ so shards can run in parallel on separate nodes.
 Sparse outputs (theme, minorities, pillars) only hold rows that matched, so
 their own ids cannot say what was processed. Either recompute them wholesale
 (pure SQL/CPU, cheap) or write a companion `<name>/seen` output.
+
+Tiers (works only). `SideOutput(..., tier=0|1)` is a run over the works of one `link_tier` (0 = project-linked,
+1 = org-only). Both tiers write into the SAME directory, so every reader (resume anti-joins, text_sources,
+assemble) is unchanged, ids being disjoint between tiers. What differs is the file naming and the markers:
+    part-t0-<shard>-<n>.parquet        tier-scoped parts (untiered: part-<shard>-<n>.parquet), so a shard
+                                       reset or resume only ever touches its own tier's parts
+    _SUCCESS.tier0, _SUCCESS.tier1     that tier is complete: tier 0 can be used long before tier 1 runs
+    _SUCCESS                           everything is complete (an untiered run, or both tier markers)
+Every marker file holds the staging stamp (fingerprint.py) it was computed against.
 """
 
+import json
 import logging
 import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
+from typing import NamedTuple, Optional, Union
 
 import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from pipelines.core_v4.enrichment.fingerprint import Stamp, combine
+
 SUCCESS_FILE = "_SUCCESS"
-_PART_RE = re.compile(r"^part-(\d+)-(\d+)\.parquet$")
+TIERS = (0, 1)
+_PART_RE = re.compile(r"^part-(?:t(\d+)-)?(\d+)-(\d+)\.parquet$")  # groups: tier, shard, part number
+
+
+class Completion(NamedTuple):
+    """The marker that says a side output is complete for some scope."""
+
+    path: Path
+    tier: Optional[int]  # None = the marker covers every tier
+    stamp: Optional[Stamp]  # staging fingerprint recorded by the run; None for a legacy (empty) marker
+
+
+class ShardStampMismatch(RuntimeError):
+    pass
+
+
+def _read_stamp(path: Path) -> Optional[Stamp]:
+    try:
+        stamp = json.loads(path.read_text() or "null")
+    except (OSError, ValueError):
+        return None
+    return stamp if isinstance(stamp, dict) and "n" in stamp else None
+
+
+def _write_stamp(path: Path, stamp: Optional[Stamp]) -> None:
+    path.write_text(json.dumps(stamp) if stamp else "")  # a few bytes: no tmp + rename needed
 
 
 @dataclass(frozen=True)
@@ -115,25 +152,48 @@ class SideOutput:
         entity: str,
         shard: Shard = Shard(),
         schema: Optional[pa.Schema] = None,
+        tier: Optional[int] = None,
     ):
+        if tier is not None and tier not in TIERS:
+            raise ValueError(f"tier must be one of {TIERS} or None, got {tier!r}")
         self.dir = Path(enrichment_dir) / name / entity
         self.name = name
         self.entity = entity
         self.shard = shard
         self.schema = schema if schema is not None else SCHEMAS.get(name)
+        self.tier = tier
 
     # ---- paths ---------------------------------------------------------------------------
     @property
     def success_path(self) -> Path:
         return self.dir / SUCCESS_FILE
 
+    def tier_success_path(self, tier: int) -> Path:
+        return self.dir / f"{SUCCESS_FILE}.tier{tier}"
+
+    @property
+    def _tag(self) -> str:
+        return "" if self.tier is None else f"t{self.tier}-"
+
     def _shard_marker(self, index: int) -> Path:
-        return self.dir / f"{SUCCESS_FILE}.{index}-of-{self.shard.count}"
+        tag = "" if self.tier is None else f"t{self.tier}."
+        return self.dir / f"{SUCCESS_FILE}.{tag}{index}-of-{self.shard.count}"
 
     def parts(self) -> list:
+        """Every part of the directory, all tiers and shards."""
         if not self.dir.is_dir():
             return []
         return sorted(p for p in self.dir.iterdir() if _PART_RE.match(p.name))
+
+    def _own_parts(self) -> list:
+        """The parts this run's (tier, shard) wrote: what a reset drops and what numbering continues."""
+        own = []
+        for p in self.parts():
+            m = _PART_RE.match(p.name)
+            tier = int(m.group(1)) if m.group(1) is not None else None
+            if tier == self.tier and int(m.group(2)) == self.shard.index:
+                own.append((p, int(m.group(3))))
+        return own
 
     @property
     def glob(self) -> str:
@@ -142,20 +202,21 @@ class SideOutput:
     # ---- lifecycle -----------------------------------------------------------------------
     def begin(self, reset: bool = False) -> None:
         """Call at the start of a run: removes half-written tmp files and the completion markers
-        (this run may add rows). `reset` also deletes this shard's existing parts."""
+        (this run may add rows). `reset` also deletes this (tier, shard)'s existing parts.
+        A tier run only invalidates its own tier marker, so tier 0 stays usable while tier 1 runs."""
         self.dir.mkdir(parents=True, exist_ok=True)
         for tmp in self.dir.glob("*.tmp"):
             tmp.unlink()
         self.success_path.unlink(missing_ok=True)
+        for t in TIERS if self.tier is None else (self.tier,):
+            self.tier_success_path(t).unlink(missing_ok=True)
         self._shard_marker(self.shard.index).unlink(missing_ok=True)
         if reset:
-            for part in self.parts():
-                if int(_PART_RE.match(part.name).group(1)) == self.shard.index:
-                    part.unlink()
+            for part, _ in self._own_parts():
+                part.unlink()
 
     def _next_part_index(self) -> int:
-        used = [int(m.group(2)) for p in self.parts() if (m := _PART_RE.match(p.name)) and int(m.group(1)) == self.shard.index]
-        return max(used, default=-1) + 1
+        return max((n for _, n in self._own_parts()), default=-1) + 1
 
     def write(self, data) -> Optional[Path]:
         """Appends one part file (pyarrow Table/RecordBatch or pandas DataFrame). Written to a tmp
@@ -168,28 +229,57 @@ class SideOutput:
         if self.schema is not None:
             table = table.select(self.schema.names).cast(self.schema)
         self.dir.mkdir(parents=True, exist_ok=True)
-        final = self.dir / f"part-{self.shard.index:03d}-{self._next_part_index():06d}.parquet"
+        final = self.dir / f"part-{self._tag}{self.shard.index:03d}-{self._next_part_index():06d}.parquet"
         tmp = final.with_name(final.name + ".tmp")
         pq.write_table(table, tmp, compression="zstd")
         os.replace(tmp, final)
         return final
 
-    def finish(self) -> bool:
-        """Marks this shard done; writes `_SUCCESS` once every one of the N shards has finished.
-        Returns whether the whole output is now complete."""
+    def finish(self, stamp: Optional[Stamp] = None) -> bool:
+        """Marks this shard done (recording the staging `stamp` it ran against); once every one of the N shards
+        has finished, writes `_SUCCESS` (untiered run) or `_SUCCESS.tier<T>` (tier run; plus `_SUCCESS` when the
+        other tier is complete too). Returns whether this run's whole scope is now complete.
+        Shards that ran against different stagings never complete (ShardStampMismatch)."""
         self.dir.mkdir(parents=True, exist_ok=True)
-        self._shard_marker(self.shard.index).touch()
-        if all(self._shard_marker(i).exists() for i in range(self.shard.count)):
-            self.success_path.touch()
-            for i in range(self.shard.count):
-                self._shard_marker(i).unlink(missing_ok=True)
-            logging.info(f"{self.name}/{self.entity}: complete ({self.dir})")
-            return True
-        logging.info(f"{self.name}/{self.entity}: shard {self.shard} finished, waiting for the other shards")
-        return False
+        _write_stamp(self._shard_marker(self.shard.index), stamp)
+        markers = [self._shard_marker(i) for i in range(self.shard.count)]
+        if not all(m.exists() for m in markers):
+            logging.info(f"{self.name}/{self.entity}: shard {self.shard} finished, waiting for the other shards")
+            return False
+        stamps = [_read_stamp(m) for m in markers]
+        if any(s != stamps[0] for s in stamps):
+            raise ShardStampMismatch(
+                f"{self.name}/{self.entity}: the shards ran against different stagings ({[s and s['n'] for s in stamps]} ids); "
+                "rerun them against the current staging"
+            )
+        for m in markers:
+            m.unlink(missing_ok=True)
+        if self.tier is None:
+            _write_stamp(self.success_path, stamps[0])
+        else:
+            _write_stamp(self.tier_success_path(self.tier), stamps[0])
+            others = [t for t in TIERS if t != self.tier]
+            if all(self.tier_success_path(t).exists() for t in others):
+                total = stamps[0]
+                for t in others:
+                    total = combine(total, _read_stamp(self.tier_success_path(t)))
+                _write_stamp(self.success_path, total)
+        logging.info(f"{self.name}/{self.entity}: complete{'' if self.tier is None else f' for tier {self.tier}'} ({self.dir})")
+        return True
 
-    def is_complete(self) -> bool:
-        return self.success_path.exists()
+    def completion(self, tier: Optional[int] = None) -> Optional[Completion]:
+        """The marker that covers `tier` (None = every tier): `_SUCCESS`, else that tier's own marker; None when
+        the output is not complete for it."""
+        if self.success_path.exists():
+            return Completion(self.success_path, None, _read_stamp(self.success_path))
+        if tier is not None and self.tier_success_path(tier).exists():
+            path = self.tier_success_path(tier)
+            return Completion(path, tier, _read_stamp(path))
+        return None
+
+    def is_complete(self, tier: Optional[int] = None) -> bool:
+        """Complete for `tier` (default: this output's own tier; None = everything)."""
+        return self.completion(self.tier if tier is None else tier) is not None
 
     # ---- reading -------------------------------------------------------------------------
     def _empty_sql(self) -> str:

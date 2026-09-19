@@ -108,9 +108,11 @@ def make_cordis(path, *, projects=(), institutions=(), links=()):
     return path
 
 
-def make_core_v2(path, institutions=(), pics=None, pic_key="id"):
-    """institutions: (id, source_id, legal_name, country, lon, lat); pics: None = no institution_pic table,
-    else (institution reference, pic) rows (the reference is institution.id, or source_id with pic_key='source_id')."""
+def make_core_v2(path, institutions=(), pics=None):
+    """institutions: (id, source_id, legal_name, country, lon, lat). pics: None = no institution_pic file, else rows
+    (institution.id, pic[, standard, multi_institutions]) written to the SEPARATE file <path>.pic.duckdb like the real
+    layout; `standard` / `multi_institutions` default to what the real file would say (9 digits / PIC on 2+ institutions).
+    Returns (geolocations path, pic path or None)."""
     con = duckdb.connect(str(path))
     con.execute(
         "CREATE TABLE institution (id VARCHAR, source_id VARCHAR, legal_name VARCHAR, street VARCHAR, city VARCHAR,"
@@ -118,17 +120,34 @@ def make_core_v2(path, institutions=(), pics=None, pic_key="id"):
     )
     for i, src, name, cc, lon, lat in institutions:
         _insert(con, "institution", [(i, src, name, "Street 1", "City", cc, [lon, lat])])
-    if pics is not None:
-        con.execute("CREATE TABLE institution_pic (institution_id VARCHAR, pic VARCHAR)")
-        _insert(con, "institution_pic", pics)
     con.close()
-    return path
+    if pics is None:
+        return path, None
+    pic_path = path.with_name(path.stem + ".pic.duckdb")
+    con = duckdb.connect(str(pic_path))
+    con.execute(
+        "CREATE TABLE institution_pic (institution_id VARCHAR, institution_source_id VARCHAR, pic VARCHAR,"
+        " n_projects BIGINT, institution_has_multiple_pics BOOLEAN, pic_has_multiple_institutions BOOLEAN,"
+        " pic_is_standard BOOLEAN)"
+    )
+    owners = {}
+    for row in pics:
+        owners.setdefault(row[1], set()).add(row[0])
+    for row in pics:
+        inst, pic = row[0], row[1]
+        standard = row[2] if len(row) > 2 else len(pic) == 9 and pic.isdigit()
+        multi = row[3] if len(row) > 3 else len(owners[pic]) > 1
+        _insert(con, "institution_pic", [(inst, None, pic, 1, False, multi, standard)])
+    con.close()
+    return path, pic_path
 
 
 def make_paths(tmp_path, staging, ror=(), cordis=None, *, cap=1000, core_v2=None):
     tmp_path.mkdir(exist_ok=True)
+    v2_geo, v2_pic = make_core_v2(tmp_path / "core_v2.duckdb", **core_v2) if core_v2 is not None else (None, None)
     return Paths(
-        core_v2_geo=make_core_v2(tmp_path / "core_v2.duckdb", **core_v2) if core_v2 is not None else None,
+        core_v2_geo=v2_geo,
+        core_v2_pic=v2_pic,
         staging=make_staging(tmp_path / "staging.duckdb", **staging),
         ror=make_ror(tmp_path / "ror.duckdb", ror),
         cordis=make_cordis(tmp_path / "cordis.duckdb", **(cordis or {})),
@@ -616,61 +635,70 @@ def test_core_v2_only_where_geolocation_null(tmp_path):
 
 def pic_orgs():
     return [
-        (1, "Different A", "DE", [" 999 001 "]),  # PIC with whitespace on the OpenAire side
-        (2, "Name Twin", "DE", ["555"]),  # PIC match must win over the name match below
-        (3, "Ambiguous Pic Org", "DE", ["777"]),
-        (4, "Multi Pic Org", "DE", ["301"]),
-        (5, "Has Pic Inst", "DE"),  # same name + country as an institution that has a PIC: not matched by name
+        (1, "Different A", "DE", [" 999 000 001 "]),  # PIC with whitespace on the OpenAire side
+        (2, "Name Twin", "DE", ["555000555"]),  # PIC match must win over the name match below
+        (3, "Ambiguous Pic Org", "DE", ["777000777"]),
+        (4, "Multi Pic Org", "DE", ["301000301"]),
+        (5, "Has Pic Inst", "DE"),  # its institution only has a non-standard PIC: name fallback still allowed
         (6, "No Pic Inst", "DE"),
+        (7, "Pic Owner", "DE"),  # same name + country as an institution that HAS a usable PIC: not matched by name
     ]
 
 
 def pic_v2():
     return dict(
         institutions=[
-            ("a", "1", "Old Name A", "DE", 1.0, 10.0),  # PIC 999001
+            ("a", "1", "Old Name A", "DE", 1.0, 10.0),  # PIC 999000001
             ("b", "2", "Name Twin", "DE", 2.0, 20.0),  # name twin of org2, no PIC
-            ("c", "3", "Pic Owner", "DE", 3.0, 30.0),  # PIC 555, org2's PIC
-            ("d", "4", "Ambiguous Pic Org", "DE", 4.0, 40.0),  # PIC 777, shared with e
-            ("e", "5", "Other Ambiguous", "DE", 5.0, 50.0),  # PIC 777
-            ("f", "6", "Old Name Multi", "DE", 6.0, 60.0),  # PICs 300 and 301
-            ("g", "7", "Has Pic Inst", "DE", 7.0, 70.0),  # has a PIC nobody uses
+            ("c", "3", "Pic Owner", "DE", 3.0, 30.0),  # PIC 555000555, org2's PIC
+            ("d", "4", "Ambiguous Pic Org", "DE", 4.0, 40.0),  # PIC 777000777, shared with e: not usable
+            ("e", "5", "Other Ambiguous", "DE", 5.0, 50.0),  # PIC 777000777
+            ("f", "6", "Old Name Multi", "DE", 6.0, 60.0),  # PICs 300000300 and 301000301
+            ("g", "7", "Has Pic Inst", "DE", 7.0, 70.0),  # only a non-standard PIC (5 digits)
             ("h", "8", "No Pic Inst", "DE", 8.0, 80.0),
         ],
         pics=[
-            ("a", "999001"),
-            ("c", "555"),
-            ("d", "777"),
-            ("e", "777"),
-            ("f", "300"),
-            ("f", "301"),
+            ("a", "999000001"),
+            ("c", "555000555"),
+            ("d", "777000777"),
+            ("e", "777000777"),
+            ("f", "300000300"),
+            ("f", "301000301"),
             ("g", "12345"),
         ],
     )
 
 
-def test_core_v2_pic_first_digits_only_ambiguous_skipped(tmp_path):
+def test_core_v2_pic_first_digits_only_standard_and_unambiguous_only(tmp_path):
     result, con = run(tmp_path, v2_staging(pic_orgs()), core_v2=pic_v2())
     geo = geo_of(con)
     assert geo[1] == ([10.0, 1.0], "core_v2")  # PIC, names differ, whitespace ignored
     assert geo[2] == ([30.0, 3.0], "core_v2")  # PIC wins over the name twin
-    assert geo[3] == (None, None)  # PIC 777 is on two institutions; the name path is closed to institutions with a PIC
-    assert geo[4] == ([60.0, 6.0], "core_v2")  # institution with several PICs matches via 301
-    assert geo[5] == (None, None)  # its institution has a PIC: no name fallback
+    # PIC 777000777 sits on two institutions (pic_has_multiple_institutions): not usable, so institution d has no
+    # usable PIC row and the strict name + country fallback applies
+    assert geo[3] == ([40.0, 4.0], "core_v2")
+    assert geo[4] == ([60.0, 6.0], "core_v2")  # institution with several PICs matches via 301000301
+    assert geo[5] == ([70.0, 7.0], "core_v2")  # non-standard PIC is not usable: name fallback
     assert geo[6] == ([80.0, 8.0], "core_v2")  # institution without PIC: name + country
+    assert geo[7] == (None, None)  # institution c has a usable PIC: no name fallback
     v = result["core_v2"]
-    assert (v["pic"], v["name_country"], v["pic_join_key"]) == (3, 1, "id")
+    assert (v["pic"], v["name_country"]) == (3, 3)
+    assert v["pic_rows_usable"] == 4  # a, c, f, f
 
 
-def test_core_v2_institution_pic_falls_back_to_source_id(tmp_path):
+def test_core_v2_pic_flags_decide_not_the_pic_format(tmp_path):
     v2 = pic_v2()
-    v2["pics"] = [(src, pic) for (i, pic), src in zip(v2["pics"], ["1", "3", "4", "5", "6", "6", "7"])]
+    v2["pics"] = [("a", "999000001", False, False), ("c", "555000555", True, True), ("f", "301000301", True, False)]
     result, con = run(tmp_path, v2_staging(pic_orgs()), core_v2=v2)
-    assert result["core_v2"]["pic_join_key"] == "source_id"
-    assert geo_of(con)[1] == ([10.0, 1.0], "core_v2")
+    geo = geo_of(con)
+    assert geo[1] == (None, None)  # flagged non-standard: never matched by PIC (and no name match for org 1 either)
+    assert geo[2] == ([20.0, 2.0], "core_v2")  # PIC of c is ambiguous: name twin b instead
+    assert geo[4] == ([60.0, 6.0], "core_v2")
+    assert geo[7] == ([30.0, 3.0], "core_v2")  # c has no usable PIC row now: name + country
+    assert result["core_v2"]["pic_rows_usable"] == 1
 
 
-def test_core_v2_without_institution_pic_table_uses_name_country_only(tmp_path):
+def test_core_v2_without_institution_pic_file_uses_name_country_only(tmp_path, caplog):
     v2 = pic_v2()
     v2["pics"] = None
     result, con = run(tmp_path, v2_staging(pic_orgs()), core_v2=v2)
@@ -678,7 +706,22 @@ def test_core_v2_without_institution_pic_table_uses_name_country_only(tmp_path):
     assert geo[1] == (None, None)  # no PIC path
     assert geo[2] == ([20.0, 2.0], "core_v2")  # name twin
     assert geo[5] == ([70.0, 7.0], "core_v2") and geo[6] == ([80.0, 8.0], "core_v2")
-    assert (result["core_v2"]["pic"], result["core_v2"]["name_country"]) == (0, 4)  # orgs 2, 3, 5, 6 by name
+    assert geo[7] == ([30.0, 3.0], "core_v2")
+    assert (result["core_v2"]["pic"], result["core_v2"]["name_country"]) == (0, 5)  # orgs 2, 3, 5, 6, 7 by name
+    assert "name + country path only" in caplog.text
+
+
+def test_core_v2_pic_file_without_the_flag_columns_is_ignored(tmp_path, caplog):
+    v2 = pic_v2()
+    geo_path, pic_path = make_core_v2(tmp_path / "old.duckdb", **v2)
+    con = duckdb.connect(str(pic_path))
+    con.execute("ALTER TABLE institution_pic DROP COLUMN pic_is_standard")
+    con.close()
+    paths = make_paths(tmp_path / "noflags", v2_staging(pic_orgs()))
+    paths.core_v2_geo, paths.core_v2_pic = geo_path, pic_path
+    result = build(paths)
+    assert (result["core_v2"]["pic"], result["core_v2"]["name_country"]) == (0, 5)
+    assert "name + country path only" in caplog.text
 
 
 def test_core_v2_missing_file_is_skipped(tmp_path, caplog):
@@ -694,11 +737,16 @@ def test_core_v2_config_key_and_cli_override(tmp_path, monkeypatch):
     cfg = _patch_config(monkeypatch, tmp_path)
     cfg["core_v4"]["path_core_v2_geolocations"] = "full_v2.duckdb"
     cfg["core_v4_limit"]["path_core_v2_geolocations"] = "limit_v2.duckdb"
+    cfg["core_v4"]["path_core_v2_institution_pic"] = "full_pic.duckdb"
+    cfg["core_v4_limit"]["path_core_v2_institution_pic"] = "limit_pic.duckdb"
     assert str(transformation.resolve_paths("full").core_v2_geo) == "full_v2.duckdb"
     assert str(transformation.resolve_paths("limit").core_v2_geo) == "limit_v2.duckdb"
+    assert str(transformation.resolve_paths("full").core_v2_pic) == "full_pic.duckdb"
+    assert str(transformation.resolve_paths("limit").core_v2_pic) == "limit_pic.duckdb"
     assert str(transformation.resolve_paths("full", core_v2_geo="x.duckdb").core_v2_geo) == "x.duckdb"
-    v2 = make_core_v2(tmp_path / "v2.duckdb", institutions=[("a", "1", "Org 1", "DE", 5.0, 6.0)])
-    main(["--core-v2-geo", str(v2)])
+    assert str(transformation.resolve_paths("full", core_v2_pic="y.duckdb").core_v2_pic) == "y.duckdb"
+    v2, v2_pic = make_core_v2(tmp_path / "v2.duckdb", institutions=[("a", "1", "Org 1", "DE", 5.0, 6.0)], pics=[])
+    main(["--core-v2-geo", str(v2), "--core-v2-pic", str(v2_pic)])
     con = duckdb.connect(str(tmp_path / "full_staging.duckdb"), read_only=True)
     assert con.execute(
         "SELECT geolocation, geolocation_source FROM organization WHERE legalName = 'Org 1'"
@@ -809,3 +857,13 @@ def test_limit_with_explicit_full_variant_is_rejected(tmp_path, monkeypatch):
     _patch_config(monkeypatch, tmp_path)
     with pytest.raises(SystemExit):
         main(["--variant", "full", "--limit", "3"])
+
+
+def test_cordis_db_override_flag_and_env_var(tmp_path, monkeypatch):
+    _patch_config(monkeypatch, tmp_path)
+    configured = str(tmp_path / "cordis.duckdb")
+    monkeypatch.delenv(transformation.CORDIS_DB_ENV, raising=False)
+    assert str(transformation.resolve_paths("full").cordis) == configured
+    monkeypatch.setenv(transformation.CORDIS_DB_ENV, "from_env.duckdb")
+    assert str(transformation.resolve_paths("full").cordis) == "from_env.duckdb"
+    assert str(transformation.resolve_paths("full", cordis_db="flag.duckdb").cordis) == "flag.duckdb"  # flag beats env

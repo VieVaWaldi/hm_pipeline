@@ -36,6 +36,9 @@ when the output is complete. Paths come from `config/pipelines.yaml`
 | minorities | project, work | id, minority_qid VARCHAR[] (sparse) |
 | pillars | project, work | id, pillars UTINYINT (sparse) |
 | geolocation | organization | id, lat, lon, geolocation_source (`mapbox` \| `mapbox_temporary`), confidence (`exact` \| `high` \| `medium` \| `street`) |
+
+(The staging `organization.geolocation_source` column itself carries `ror`, `cordis` or `core_v2`, set by the
+transformation; the geolocation side output only ever adds the two Mapbox values, and only where staging has none.)
 | regions | organization | id, region |
 
 `id` is the UBIGINT hash (values above int64 max; keep `uint64` in Arrow).

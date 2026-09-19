@@ -150,6 +150,20 @@ Config keys (`--config key=value ...`), all optional:
 | `geolocation_permanent=true` | send `--permanent` (billed, $5/1,000). Default is temporary geocoding (free tier) |
 | `shards=N`, `shards_<name>=N` | override the shard count of every / one enrichment (theme, regions, geolocation are always 1) |
 
+Local end-to-end run on a synthetic sample (dev machine, no GPU, no OpenAire dump; verified in Phase 3E). The inputs the DAG
+expects are the OpenAire staging v4 (`openaire_dump.path_duck_staging_v4`), `ror_raw.duckdb` and the Cordis
+`full_projects_no_pdfs` loader checkpoint. Locally there is no OpenAire dump and the full Cordis db is empty, so:
+
+```bash
+# 1. a staging-v4-shaped fixture (4,000 projects, 7,500 orgs, 80,000 works, ...; git-ignored, seeded) + a truth db of what was planted
+uv run python -m pipelines.core_v4.build_sample_fixture            # -> data/duckdb/sample/
+# 2. make the DAG find it where the config expects staging v4 (a symlink; a real `stage_openaire_dump_v4` would replace it)
+ln -s ../sample/openaire_staging_v4_sample.duckdb data/duckdb/sources/openaire_staging_v4.duckdb
+# 3. read the Cordis heritage subset instead of the empty full db (dev override, env var read by the transformation)
+export CORE_V4_CORDIS_DB=data/duckdb/sources/cordis_heritage_subset_with_pdfs_raw.duckdb
+UV_NO_SYNC=1 uv run snakemake -s orchestration/Snakefile --cores 4 core_v4 --config limit=2000 skip=nllb,dch
+```
+
 Enabling geolocation (runs last in the projects chain, single process, spends the Mapbox budget; cached answers are free):
 
 ```bash
@@ -164,11 +178,15 @@ Sharding and idempotency: each (enrichment, entity) is N jobs (`--shard I/N`, on
 `.snakemake/sentinels/enrichment/core_v4/...`) and one local `core_v4_success` job that writes the real artifact,
 `<enrichment_dir>/<name>/<entity>/_SUCCESS`, through `SideOutput`. Downstream rules depend on that file, so what is
 done is decided by files on disk. To force one enrichment to rerun (it resumes from its parquet parts, and everything
-downstream reruns too), delete its `_SUCCESS` and run the target again:
+downstream reruns too), `--forcerun` its `_SUCCESS` (**absolute path**; a relative path fails with `MissingRuleException`):
 
 ```bash
-rm data/enrichment/core_v4/dch/project/_SUCCESS   # under /work/lu72hip/... on prod
+ENV=prod uv run snakemake -s orchestration/Snakefile --workflow-profile orchestration/profiles/slurm core_v4_projects \
+    --forcerun $PWD/data/enrichment/core_v4/dch/project/_SUCCESS   # path under /work/lu72hip/... on prod, whatever config says
 ```
+
+Only deleting `_SUCCESS` is not enough: Snakemake does not rebuild a missing intermediate file while the assembled
+duckdbs and reports downstream of it are up to date (the target then says "Nothing to be done").
 
 Shard counts and GPU resources are in `rules/pipeline/core_v4/enrichment.smk` (`_CORE_V4_DEFAULT_SHARDS`); the
 NLLB/DCH values are provisional until they are set from the measured throughput.

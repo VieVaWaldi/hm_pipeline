@@ -1,5 +1,6 @@
 ### Custom ignores ###
 
+core_v2_geolocations.duckdb
 .mcp.json
 .vscode/
 .idea/

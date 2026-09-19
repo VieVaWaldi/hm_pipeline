@@ -21,12 +21,13 @@ Tables are seeded first, then columns are added (no new tables). It differs from
 | Cordis project match | `grantId = id_original` | same, plus a DOI fallback |
 | Cordis org match | `lower(trim(name))` only (2.5 pairs per triplet) | PIC first, name + normalised country as strict fallback, never name only |
 | Cordis output | 2 relation columns | 2 relation columns + address columns and coordinates on organization |
+| geolocation tiers | ROR | ROR, Cordis (project-scoped match, then org-level PIC), core_v2 legacy; `geolocation_source` = `ror` / `cordis` / `core_v2` |
 
 Usage:
 
 ```
 python -m pipelines.core_v4.transformation [--variant full|limit] [--staging-db PATH] [--limit N] [--work-cap N]
-                                           [--mem-mb M] [--threads T]
+                                           [--core-v2-geo PATH] [--core-v2-pic PATH] [--mem-mb M] [--threads T]
 ```
 
 `--mem-mb` / `--threads` are the shared `core_v3.resources` flags. `--limit N` implies `--variant limit`; `--variant full`
@@ -101,7 +102,7 @@ staging v4 only, the step is skipped with a warning when it is missing). A Cordi
 `project -> organization` rows **that already exist** (join on `source`, `target`), not on the product direction. One value per
 (project, org): PIC before name+country, then a known contribution, then the lowest institution id.
 
-**(d) Address columns** for matched orgs only, from **one** institution per org: PIC-matched first, then real coordinates, then
+**(d) Address columns** for matched orgs only (pass 1), from **one** institution per org: PIC-matched first, then real coordinates, then
 street + city both present, then the highest institution id. `address_street`, `address_postalcode`, `address_city`,
 `address_country` (normalised ISO2), `nuts3` (`nuts_level_3`). Empty strings become NULL. Unmatched orgs stay NULL. An org counts as
 matched when it matched in (b), whether or not it has a `hasParticipant` relation to that project.
@@ -114,6 +115,12 @@ matched when it matched in (b), whether or not it has a `hasParticipant` relatio
 literal `null` (or any array that is not two numbers in the lat/lon range) means missing. core_v4 flips it to `[lat, lng]`, the
 order core_v3 uses for ROR.
 
+**(f) Org-level PIC pass (pass 2).** After the project-scoped merge, orgs that pass 1 did not match are matched to Cordis
+institutions by PIC alone: `j_project_institution.organization_id` = the org's `PIC` pid over **all** Cordis rows, whether or not
+the Cordis project matched OpenAire. PIC only, no name fallback. Same one-institution rule, same address columns, same
+"coordinates only when `geolocation IS NULL`" (`geolocation_source = 'cordis'`). Orgs already matched in pass 1 are never touched.
+The log prints the orgs and adopted coordinates per pass.
+
 ### Expected yield (Phase 1, to compare against the log lines of a prod run)
 
 | metric | Phase 1 | what the log prints |
@@ -123,13 +130,47 @@ order core_v3 uses for ROR.
 | triplets matched by name + country (Phase 1: for all triplets, 249,755) | 52.0% | `name_country fallback:` (smaller: only PIC-less triplets are tried) |
 | triplets matched in total | at least 89.7% | `matched:` |
 | triplets also in OpenAire `hasParticipant` (PIC) | 393,063 (81.9%) | `relation rows enriched with Cordis` (about one row per confirmed (project, org) pair; core_v3: ~193K) |
-| orgs matched, org level PIC (not limited to matched projects) | 68,125 | `organizations matched` (lower: limited to matched projects) |
+| orgs matched by PIC at org level (both passes together) | 68,125 | `pass 1 ... organizations matched` + `pass 2 ... organizations added` (should come close to 68,125 in total) |
 | orgs with no ROR coordinates, matched, with address | 59,644 (PIC, org level) | `with street + city` |
-| Cordis coordinates available for those | 43,557 of the 59,644 | `geolocation adopted from Cordis` (only those not already in ROR) |
+| Cordis coordinates available for those | 43,557 of the 59,644 | `geolocation adopted from Cordis` per pass (only those not already in ROR) |
 
 Orgs left with an address but without coordinates are the Mapbox candidates for `enrichment/geolocation.py` (Phase 1: about 16k).
 
-## 5. `--limit N` sample
+## 5. core_v2 legacy geolocations (free tier)
+
+Applied after ROR and Cordis, **only where `geolocation IS NULL`**, setting `geolocation_source = 'core_v2'`. It only fills
+coordinates (no address columns). Two input files, both harvested from the old core_v2, both in the subdirectory
+`data/pile/core_v2_geolocation/` (prod: `/work/lu72hip/data/pile/core_v2_geolocation/`):
+
+| config key (both blocks) | file | CLI override | when missing |
+|---|---|---|---|
+| `path_core_v2_geolocations` | `core_v2_geolocations.duckdb`, table `institution` | `--core-v2-geo PATH` | warning, the whole tier is skipped, the run continues |
+| `path_core_v2_institution_pic` | `core_v2_institution_pic.duckdb`, table `institution_pic` (a **separate** file, ATTACHed read-only) | `--core-v2-pic PATH` | warning, name + country only |
+
+(A stale copy at `data/pile/core_v2_geolocations.duckdb` is ignored.)
+
+Table `institution` (65,961 rows, all Cordis institutions, all with coordinates): `geolocation DOUBLE[]` is **`[lon, lat]`** and is
+flipped to `[lat, lng]`; `country` is normalised with `common.countries` (EL->GR, UK->GB); `id` is a 32-hex hash.
+`legal_name + country` is unique in the file. Coordinates outside the lat/lon range are ignored.
+
+Table `institution_pic` (45,019 rows): `institution_id` (= `institution.id`), `institution_source_id`, `pic`, `n_projects`,
+`institution_has_multiple_pics`, `pic_has_multiple_institutions`, `pic_is_standard` (9 digits). **Usable rows**: `pic_is_standard`
+AND NOT `pic_has_multiple_institutions` (45,000 of the 45,019).
+
+Matching, per org (one institution, PIC before name):
+1. **PIC**: the org's `PIC` pid against a usable row, digits only on both sides (whitespace and other characters removed).
+   An institution with several usable PICs matches via each of them.
+2. **name + country**: `lower(trim(legal_name))` = `lower(trim(legalName))` and normalised country equal, both non-null. Only for
+   institutions **without a usable PIC row** (an institution whose only PICs are non-standard or shared with another institution
+   still gets this fallback). Never name only. Without the pic file this is the only path.
+
+The log prints the usable pic rows, and orgs added by `pic` and `name_country` and the number of orgs without coordinates before
+and after.
+**Smoke run on the real files** (orgs built from the files themselves: 2,000 identified by PIC only, 2,000 by upper-cased name +
+country only, 500 unknown): 45,000 usable pic rows, all resolving to an `institution.id`; orgs without coordinates 4,500 before,
+748 after; added by `pic` 1,991, by `name_country` 1,752.
+
+## 6. `--limit N` sample
 
 Writes only to `core_v4_limit.path_duck_staging_limit`. Steps:
 1. N projects, ordered by: grantId exists in Cordis, produces at least one work, id (hashes, so a fixed pseudo-random order).
@@ -148,11 +189,10 @@ duckdb files in a tmp dir. Covered: tiers, unlinked works dropped, cap ordering,
 date (also with reversed insertion order), future dates nulled, relation cascade, country normalisation, rebuild from scratch, ROR
 `[lat, lng]`, PIC before name+country, name-only never matches, no match without country, relation columns only on existing
 relations, DOI fallback, addresses only on matched orgs, Cordis coordinates only when geolocation was NULL, institution choice, the
-limit sample (FK check) and that a limit run never writes to the full path.
+org-level PIC pass, the core_v2 tier (PIC first, digits only, standard/unambiguous PICs only via the flag columns, name fallback for institutions without a usable PIC, no or incomplete pic file, missing geolocations file, config keys and CLI overrides), the limit sample (FK check) and that a limit run never writes to the full path.
 
 ## Not done / open
 
-- Address and coordinates come from matches inside matched projects only. An org-level PIC match (any Cordis institution with the
-  same PIC, whatever the project) would give more addresses (Phase 1: 68,125 orgs vs. whatever the project-restricted count is).
+- The core_v2 tier fills coordinates only, not addresses.
 - Project `pids` other than DOI, and the dropped raw columns (README section 6), are not brought back.
 - The "keep all works connected to minorities" rule is not implemented (needs the minorities dump joined to works).

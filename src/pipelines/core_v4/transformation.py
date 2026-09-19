@@ -50,6 +50,7 @@ Prerequisites:
 
 import argparse
 import logging
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -67,6 +68,7 @@ from common.log.timer import log_run_time
 from pipelines.core_v3.resources import add_resource_args, apply_duckdb_limits
 
 DEFAULT_WORK_CAP = 50_000_000
+CORDIS_DB_ENV = "CORE_V4_CORDIS_DB"  # dev only: read this Cordis duckdb instead of the configured full_projects_no_pdfs one
 DEFAULT_LIMIT = 1000  # `--variant limit` without --limit
 LIMIT_CAP_FACTOR = 3  # limit mode: cap = min(work_cap, max(3 * N, produced works + N)) ...
 LIMIT_EXTRA_FACTOR = 5  # ... and up to 5 * N org-only works are added to the sample so the cap binds
@@ -81,6 +83,7 @@ class Paths:
     out: Path  # core_v4 staging (output, rebuilt from scratch)
     work_cap: int
     core_v2_geo: Optional[Path] = None  # legacy geolocations (optional; skipped when missing)
+    core_v2_pic: Optional[Path] = None  # legacy institution_pic, a SEPARATE file (optional; name + country only without it)
 
 
 def resolve_paths(
@@ -88,6 +91,8 @@ def resolve_paths(
     staging_db: Optional[str] = None,
     work_cap: Optional[int] = None,
     core_v2_geo: Optional[str] = None,
+    core_v2_pic: Optional[str] = None,
+    cordis_db: Optional[str] = None,
 ) -> Paths:
     """Config paths for `variant` ('full' or 'limit'). The limit variant only ever gets the
     `core_v4_limit` output path; the cap comes from core_v4.work_cap (a quoted string)."""
@@ -96,17 +101,23 @@ def resolve_paths(
         out = pipelines["core_v4_limit"]["path_duck_staging_limit"]
     else:
         out = pipelines["core_v4"]["path_duck_staging"]
-    core_v2 = core_v2_geo or pipelines["core_v4_limit" if variant == "limit" else "core_v4"].get(
-        "path_core_v2_geolocations"
-    )
+    block = pipelines["core_v4_limit" if variant == "limit" else "core_v4"]
+    core_v2 = core_v2_geo or block.get("path_core_v2_geolocations")
+    core_v2_pics = core_v2_pic or block.get("path_core_v2_institution_pic")
     cap = work_cap if work_cap is not None else int(pipelines["core_v4"].get("work_cap", DEFAULT_WORK_CAP))
     return Paths(
         staging=Path(staging_db or get_dumps_paths()["openaire_dump"]["path_duck_staging_v4"]),
         ror=Path(get_dumps_paths()["ror_dump"]["path_duck"]),
-        cordis=Path(get_query_settings()["cordis"].queries["full_projects_no_pdfs"].path_duck),
+        # dev override (`--cordis-db`, or the env var so a Snakemake run picks it up): the full Cordis db is empty locally
+        cordis=Path(
+            cordis_db
+            or os.environ.get(CORDIS_DB_ENV)
+            or get_query_settings()["cordis"].queries["full_projects_no_pdfs"].path_duck
+        ),
         out=Path(out),
         work_cap=cap,
         core_v2_geo=Path(core_v2) if core_v2 else None,
+        core_v2_pic=Path(core_v2_pics) if core_v2_pics else None,
     )
 
 
@@ -522,9 +533,12 @@ def _apply_institutions(con: duckdb.DuckDBPyConnection, table: str) -> None:
 # ---------------------------------------------------------------------------
 # 3. core_v2 legacy geolocations (free tier after ROR and Cordis)
 # ---------------------------------------------------------------------------
-def _merge_core_v2(con: duckdb.DuckDBPyConnection, core_v2_db: Optional[Path]) -> Dict[str, Any]:
+def _merge_core_v2(
+    con: duckdb.DuckDBPyConnection, core_v2_db: Optional[Path], core_v2_pic_db: Optional[Path] = None
+) -> Dict[str, Any]:
     """Coordinates from the harvested core_v2 Cordis institutions, only for orgs whose geolocation is still NULL.
-    Skipped with a warning when the file is missing (prod must still run)."""
+    Both files are optional: no geolocations file = the tier is skipped with a warning (prod must still run); no
+    institution_pic file = name + country only."""
     if core_v2_db is None or not core_v2_db.exists():
         logging.warning(f"core_v2 geolocations not found ({core_v2_db}): skipping the core_v2 tier")
         return {"skipped": True}
@@ -534,54 +548,41 @@ def _merge_core_v2(con: duckdb.DuckDBPyConnection, core_v2_db: Optional[Path]) -
 
     # geolocation is DOUBLE[] = [lon, lat] like every Cordis source: flipped to [lat, lng] on write.
     con.execute("""CREATE OR REPLACE TEMP TABLE _v2_inst AS
-           SELECT id, source_id, lower(trim(legal_name)) AS name_key, norm_cc(country) AS cc,
+           SELECT id, lower(trim(legal_name)) AS name_key, norm_cc(country) AS cc,
                   geolocation[1] AS lon, geolocation[2] AS lat
            FROM core_v2.institution
            WHERE len(geolocation) = 2 AND geolocation[1] BETWEEN -180 AND 180 AND geolocation[2] BETWEEN -90 AND 90""")
     n_inst = _one(con, "SELECT count(*) FROM _v2_inst")
 
-    # Institution PICs (optional table institution_pic(institution_id, pic, ...)). institution_id should reference
-    # institution.id; fall back to source_id when nothing matches. PICs are compared digits only.
-    con.execute("CREATE OR REPLACE TEMP TABLE _v2_pic_all (pic VARCHAR, inst_id VARCHAR)")
-    has_pic_table = _has_column(con, "core_v2", "institution_pic", "institution_id") and _has_column(
-        con, "core_v2", "institution_pic", "pic"
-    )
-    if has_pic_table:
-        n_by_id = _one(
-            con,
-            "SELECT count(*) FROM core_v2.institution_pic ip JOIN core_v2.institution i ON i.id = ip.institution_id::VARCHAR",
-        )
-        n_by_source = _one(
-            con,
-            "SELECT count(*) FROM core_v2.institution_pic ip JOIN core_v2.institution i ON i.source_id = ip.institution_id::VARCHAR",
-        )
-        key = "id" if n_by_id > 0 or n_by_source == 0 else "source_id"
-        if key == "source_id":
-            logging.warning(
-                "core_v2 institution_pic.institution_id does not match institution.id: joining on source_id"
-            )
-        elif n_by_id == 0:
-            logging.warning(
-                "core_v2 institution_pic matches neither institution.id nor source_id: PIC path finds nothing"
-            )
-        con.execute(f"""INSERT INTO _v2_pic_all
-               SELECT DISTINCT nullif(regexp_replace(ip.pic::VARCHAR, '[^0-9]', '', 'g'), ''), i.id
-               FROM core_v2.institution_pic ip JOIN core_v2.institution i ON i.{key} = ip.institution_id::VARCHAR
-               WHERE nullif(regexp_replace(ip.pic::VARCHAR, '[^0-9]', '', 'g'), '') IS NOT NULL""")
-        stats["pic_join_key"] = key
+    # Institution PICs live in a SEPARATE duckdb (table institution_pic; institution_id = institution.id, the 32-hex
+    # hash). Usable rows: a standard (9 digit) PIC that belongs to exactly one institution. One institution may carry
+    # several usable PICs and matches through each. PICs are compared digits only.
+    con.execute("CREATE OR REPLACE TEMP TABLE _v2_pic (pic VARCHAR, inst_id VARCHAR)")
+    if core_v2_pic_db is None or not core_v2_pic_db.exists():
+        logging.warning(f"core_v2 institution_pic not found ({core_v2_pic_db}): name + country path only")
     else:
-        logging.info("core_v2 has no institution_pic table: name + country path only")
-    # a PIC on more than one institution is ambiguous: never used
-    con.execute(
-        """CREATE OR REPLACE TEMP TABLE _v2_pic AS
-           SELECT pic, any_value(inst_id) AS inst_id FROM _v2_pic_all GROUP BY pic HAVING count(DISTINCT inst_id) = 1"""
-    )
+        con.execute(f"ATTACH '{core_v2_pic_db}' AS core_v2_pic (READ_ONLY)")
+        needed = ("institution_id", "pic", "pic_is_standard", "pic_has_multiple_institutions")
+        if not all(_has_column(con, "core_v2_pic", "institution_pic", c) for c in needed):
+            logging.warning(f"core_v2 institution_pic lacks a table or one of {needed}: name + country path only")
+        else:
+            con.execute("""INSERT INTO _v2_pic
+                   SELECT DISTINCT nullif(regexp_replace(ip.pic::VARCHAR, '[^0-9]', '', 'g'), ''), ip.institution_id::VARCHAR
+                   FROM core_v2_pic.institution_pic ip
+                   WHERE ip.pic_is_standard AND NOT ip.pic_has_multiple_institutions
+                     AND nullif(regexp_replace(ip.pic::VARCHAR, '[^0-9]', '', 'g'), '') IS NOT NULL""")
+            n_pic_rows = _one(con, "SELECT count(*) FROM _v2_pic")
+            n_resolved = _one(con, "SELECT count(*) FROM _v2_pic p JOIN core_v2.institution i ON i.id = p.inst_id")
+            stats["pic_rows_usable"] = n_pic_rows
+            logging.info(f"core_v2 institution_pic: {n_pic_rows:,} usable rows, {n_resolved:,} resolve to an institution.id")
+            if n_pic_rows and not n_resolved:
+                logging.warning("core_v2 institution_pic.institution_id matches no institution.id: PIC path finds nothing")
     con.execute("""CREATE OR REPLACE TEMP TABLE _v2_org_pic AS
            SELECT DISTINCT o.id AS org_id, nullif(regexp_replace(p.value, '[^0-9]', '', 'g'), '') AS pic
            FROM organization o, UNNEST(o.pids) AS u(p)
            WHERE p.scheme = 'PIC' AND p.value IS NOT NULL AND o.geolocation IS NULL""")
 
-    # PIC first; then name + normalised country, only for institutions without any PIC, never name only.
+    # PIC first; then name + normalised country, only for institutions without a usable PIC row, never name only.
     con.execute("""CREATE OR REPLACE TEMP TABLE _v2_match AS
            SELECT org_id, inst_id, method, lat, lon FROM (
                SELECT op.org_id, i.id AS inst_id, 'pic' AS method, i.lat, i.lon
@@ -590,7 +591,7 @@ def _merge_core_v2(con: duckdb.DuckDBPyConnection, core_v2_db: Optional[Path]) -
                SELECT o.id, i.id, 'name_country', i.lat, i.lon
                FROM organization o
                JOIN _v2_inst i ON lower(trim(o.legalName)) = i.name_key AND i.cc IS NOT NULL AND o.countryCode = i.cc
-               WHERE o.geolocation IS NULL AND i.id NOT IN (SELECT inst_id FROM _v2_pic_all)
+               WHERE o.geolocation IS NULL AND i.id NOT IN (SELECT inst_id FROM _v2_pic)
            )
            QUALIFY row_number() OVER (PARTITION BY org_id ORDER BY (method <> 'pic'), inst_id) = 1""")
     con.execute("""UPDATE organization o
@@ -679,7 +680,7 @@ def build(
 
         logging.info("--- Merging core_v2 legacy geolocations (only where geolocation is still NULL) ---")
         t = datetime.now()
-        result["core_v2"] = _merge_core_v2(con, paths.core_v2_geo)
+        result["core_v2"] = _merge_core_v2(con, paths.core_v2_geo, paths.core_v2_pic)
         log_run_time(t)
 
         logging.info("--- Final verification ---")
@@ -737,6 +738,18 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         help="legacy core_v2 geolocations duckdb (default: config path_core_v2_geolocations); skipped when missing",
     )
     parser.add_argument(
+        "--core-v2-pic",
+        default=None,
+        help="legacy core_v2 institution_pic duckdb, a separate file (default: config path_core_v2_institution_pic); "
+        "name + country only when missing",
+    )
+    parser.add_argument(
+        "--cordis-db",
+        default=None,
+        help=f"Cordis duckdb to join (default: config cordis full_projects_no_pdfs, or ${CORDIS_DB_ENV}); dev override, "
+        "e.g. the heritage subset when the full db is not loaded locally",
+    )
+    parser.add_argument(
         "--work-cap",
         type=int,
         default=None,
@@ -753,7 +766,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     limit = args.limit if args.limit else (DEFAULT_LIMIT if variant == "limit" else None)
 
     setup_logging("transformation", "core_v4")
-    paths = resolve_paths(variant, args.staging_db, args.work_cap, args.core_v2_geo)
+    paths = resolve_paths(variant, args.staging_db, args.work_cap, args.core_v2_geo, args.core_v2_pic, args.cordis_db)
 
     logging.info(f"CORE V4 TRANSFORMATION ({variant})")
     logging.info(f"Target:              {paths.out}")
@@ -761,6 +774,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     logging.info(f"ROR:                 {paths.ror}")
     logging.info(f"Cordis:              {paths.cordis}")
     logging.info(f"core_v2 geolocation: {paths.core_v2_geo}")
+    logging.info(f"core_v2 institution_pic: {paths.core_v2_pic}")
     logging.info(f"Work cap:            {paths.work_cap:,} (config / --work-cap)")
     logging.info(f"Resources:           {args.mem_mb:,} MB, {args.threads} threads")
     if limit:

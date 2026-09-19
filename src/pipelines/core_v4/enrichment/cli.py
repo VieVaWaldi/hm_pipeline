@@ -8,6 +8,8 @@ Flags every core_v4 enrichment CLI shares, and the path resolution behind them.
     --test N              dry run on N rows: computes and logs results, writes nothing
     --shard I/N           only ids with id % N == I (parallel nodes)
     --entity              project | work | both   (default: both)
+    --tier 0|1|all        (works only) 0 = project-linked works, 1 = org-only works; default all. Needs --entity work.
+                          Tier 0 gets its own completion marker (_SUCCESS.tier0), so it is usable before tier 1 runs.
     --allow-untranslated  (text enrichments) use original text when NLLB is not complete
 """
 
@@ -28,6 +30,12 @@ def add_common_args(parser: argparse.ArgumentParser, *, text: bool = True, entit
     add_shard_arg(parser)
     if entities:
         parser.add_argument("--entity", choices=["project", "work", "both"], default="both")
+        parser.add_argument(
+            "--tier",
+            choices=["0", "1", "all"],
+            default="all",
+            help="works only: process only the project-linked (0) or the org-only (1) works (staging work.link_tier)",
+        )
     if text:
         parser.add_argument(
             "--allow-untranslated",
@@ -45,6 +53,7 @@ class Resolved:
     limit: int | None  # --test N overrides --limit
     dry_run: bool
     entities: List[str]
+    tier: int | None = None  # None = all works
 
 
 def resolve(args: argparse.Namespace) -> Resolved:
@@ -55,6 +64,9 @@ def resolve(args: argparse.Namespace) -> Resolved:
         cfg = get_pipeline_paths()["core_v4"]
         db, edir, cache = cfg["path_duck_staging"], cfg["path_enrichment_dir"], cfg["path_cache_dir"]
     entity = getattr(args, "entity", "both")
+    tier = None if getattr(args, "tier", "all") == "all" else int(args.tier)
+    if tier is not None and entity != "work":
+        raise SystemExit("--tier only applies to works: pass --entity work")
     return Resolved(
         db=args.db or db,
         enrichment_dir=args.enrichment_dir or edir,
@@ -63,4 +75,5 @@ def resolve(args: argparse.Namespace) -> Resolved:
         limit=args.test if args.test is not None else args.limit,
         dry_run=args.test is not None,
         entities=["project", "work"] if entity == "both" else [entity],
+        tier=tier,
     )

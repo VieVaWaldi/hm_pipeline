@@ -21,11 +21,15 @@ Sharding. Every enrichment CLI takes `--shard I/N`. Per (enrichment, entity) the
     core_v4_success         one local job that writes `_SUCCESS` (through side_outputs.SideOutput,
                             not by reimplementing its format) once all N sentinels exist
 
-Because the sentinels are temp(), they disappear as soon as `_SUCCESS` exists. Deleting `_SUCCESS`
-therefore makes Snakemake rerun every shard of that enrichment (they resume from the parquet parts
-already on disk) and everything downstream of it:
+Because the sentinels are temp(), they disappear as soon as `_SUCCESS` exists. To redo one enrichment
+(every shard reruns and resumes from the parquet parts already on disk, then everything downstream of it),
+force its `_SUCCESS` with an ABSOLUTE path:
 
-    rm <enrichment_dir>/<name>/<entity>/_SUCCESS
+    snakemake ... core_v4 --forcerun $PWD/<enrichment_dir>/<name>/<entity>/_SUCCESS
+
+Merely deleting `_SUCCESS` does not work: Snakemake does not rebuild a missing intermediate file while the
+files downstream of it (assembled duckdbs, reports) are up to date, so the target answers "Nothing to be done".
+(Delete `_SUCCESS` AND the assembled duckdb, or use --forcerun.)
 
 Shard counts are provisional (`_CORE_V4_DEFAULT_SHARDS`); the NLLB and DCH GPU numbers should be replaced by
 the measured throughput from src/enrichment/nllb_translator/README.md. GPU shards run on `gpu-test`

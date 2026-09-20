@@ -1,5 +1,6 @@
 ### Custom ignores ###
 
+serving/agent_job/out
 core_v2_geolocations.duckdb
 .mcp.json
 .vscode/
@@ -285,3 +286,4 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.toptal.com/developers/gitignore/api/python,macos,windows,visualstudiocode,jupyternotebooks
+tmp_session/

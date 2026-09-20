@@ -24,6 +24,7 @@ Ordering is not guaranteed (no ORDER BY on 50M rows); resume with `exclude_ids_s
 """
 
 import logging
+import os
 from pathlib import Path
 from typing import Iterator, List, Literal, Optional, Sequence, Union
 
@@ -169,13 +170,54 @@ def text_sql(
     return sql
 
 
+# DuckDB's memory_limit defaults to ~80% of the NODE's RAM and ignores the SLURM cgroup (a 64G job on a 257G node is
+# OOM-killed), so open_staging caps itself: this share of the allocation, the rest is python, models, arrow batches.
+DUCKDB_MEM_SHARE = 0.4
+DUCKDB_MEM_MIN_MB = 2048
+_CGROUP_MEM_FILES = ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes")
+
+
+def slurm_memory_mb() -> Optional[int]:
+    """Memory of this job in MB from SLURM_MEM_PER_NODE, else SLURM_MEM_PER_CPU * SLURM_CPUS_PER_TASK, else the
+    cgroup limit; None when unknown (local dev, tests) or unlimited."""
+    try:
+        if os.environ.get("SLURM_MEM_PER_NODE"):
+            return int(os.environ["SLURM_MEM_PER_NODE"])
+        if os.environ.get("SLURM_MEM_PER_CPU") and os.environ.get("SLURM_CPUS_PER_TASK"):
+            return int(os.environ["SLURM_MEM_PER_CPU"]) * int(os.environ["SLURM_CPUS_PER_TASK"])
+    except ValueError:
+        pass
+    for f in _CGROUP_MEM_FILES:
+        try:
+            raw = Path(f).read_text().strip()
+        except OSError:
+            continue
+        if raw.isdigit() and int(raw) < 2**60:  # "max" / ~2**63 = unlimited
+            return int(raw) // 2**20
+    return None
+
+
+def duckdb_memory_limit() -> Optional[str]:
+    """DuckDB `memory_limit` value (40% of the job's memory, at least 2 GB) or None if the allocation is unknown."""
+    mb = slurm_memory_mb()
+    if not mb or mb <= 0:
+        return None
+    return f"{max(int(mb * DUCKDB_MEM_SHARE), DUCKDB_MEM_MIN_MB)}MB"
+
+
 def open_staging(db_path: Optional[Union[str, Path]] = None) -> duckdb.DuckDBPyConnection:
-    """Read-only connection to the core_v4 staging duckdb (enrichments never write to it)."""
+    """Read-only connection to the core_v4 staging duckdb (enrichments never write to it).
+    Caps DuckDB's memory to the SLURM allocation when known (see duckdb_memory_limit)."""
     if db_path is None:
         from common.config.pipelines import get_pipeline_paths
 
         db_path = get_pipeline_paths()["core_v4"]["path_duck_staging"]
-    return duckdb.connect(str(db_path), read_only=True)
+    con = duckdb.connect(str(db_path), read_only=True)
+    limit = duckdb_memory_limit()
+    if limit:
+        con.execute(f"SET memory_limit = '{limit}'")
+        logging.info(f"duckdb memory_limit = {limit}")
+    return con
 
 
 def text_batches(

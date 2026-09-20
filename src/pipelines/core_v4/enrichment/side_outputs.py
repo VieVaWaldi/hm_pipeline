@@ -48,6 +48,7 @@ from pipelines.core_v4.enrichment.fingerprint import Stamp, combine
 SUCCESS_FILE = "_SUCCESS"
 TIERS = (0, 1)
 _PART_RE = re.compile(r"^part-(?:t(\d+)-)?(\d+)-(\d+)\.parquet$")  # groups: tier, shard, part number
+_TMP_RE = re.compile(_PART_RE.pattern[:-1] + r"\.tmp$")  # in-flight write of a part, same groups
 
 
 class Completion(NamedTuple):
@@ -196,6 +197,15 @@ class SideOutput:
                 own.append((p, int(m.group(3))))
         return own
 
+    def _own_tmps(self) -> list:
+        """The in-flight tmp files of this run's (tier, shard); other shards write theirs concurrently."""
+        own = []
+        for p in self.dir.iterdir():
+            m = _TMP_RE.match(p.name)
+            if m and (int(m.group(1)) if m.group(1) is not None else None) == self.tier and int(m.group(2)) == self.shard.index:
+                own.append(p)
+        return own
+
     @property
     def glob(self) -> str:
         return str(self.dir / "part-*.parquet")
@@ -206,8 +216,8 @@ class SideOutput:
         (this run may add rows). `reset` also deletes this (tier, shard)'s existing parts.
         A tier run only invalidates its own tier marker, so tier 0 stays usable while tier 1 runs."""
         self.dir.mkdir(parents=True, exist_ok=True)
-        for tmp in self.dir.glob("*.tmp"):
-            tmp.unlink()
+        for tmp in self._own_tmps():
+            tmp.unlink(missing_ok=True)  # only ours: the other shards' in-flight tmp files are live
         self.success_path.unlink(missing_ok=True)
         for t in TIERS if self.tier is None else (self.tier,):
             self.tier_success_path(t).unlink(missing_ok=True)

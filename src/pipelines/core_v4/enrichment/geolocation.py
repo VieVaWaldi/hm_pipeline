@@ -40,6 +40,7 @@ from enrichment.geolocation.geocoder import Estimate, GeolocationEnricher, Insti
 from pipelines.core_v4.enrichment.cli import add_common_args, resolve
 from pipelines.core_v4.enrichment.fingerprint import staging_stamp
 from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
+from pipelines.core_v4.enrichment.text_sources import open_staging
 
 READ_BATCH = 5_000
 
@@ -172,7 +173,7 @@ def main() -> None:
         raise SystemExit("geolocation shares one single-writer cache file: run it unsharded")
 
     out = SideOutput(res.enrichment_dir, "geolocation", "organization", res.shard)
-    con = duckdb.connect(res.db, read_only=True)
+    con = open_staging(res.db)
     register_country_macro(con)
     # --test never sends anything: a budget of 0 answers only from the cache
     enricher = GeolocationEnricher(

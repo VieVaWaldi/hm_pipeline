@@ -6,6 +6,7 @@ import pytest
 
 from pipelines.core_v4.enrichment.fixtures import make_staging_fixture, project_id, work_id
 from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
+from pipelines.core_v4.enrichment import text_sources
 from pipelines.core_v4.enrichment.text_sources import NllbNotReadyError, field_sql, text_batches, text_sql
 
 
@@ -141,3 +142,52 @@ def test_tier_restricts_works_and_gates_nllb_per_tier(staging, tmp_path):
 def test_tier_in_streaming_batches(staging, tmp_path):
     ids = {i for b in text_batches(staging, "work", ["title"], with_nllb=False, enrichment_dir=tmp_path, tier=0) for i in b.column("id").to_pylist()}
     assert ids == {work_id(1), work_id(2)}
+
+
+_MEM_ENV = ("SLURM_MEM_PER_NODE", "SLURM_MEM_PER_CPU", "SLURM_CPUS_PER_TASK")
+
+
+@pytest.fixture
+def no_mem_info(monkeypatch, tmp_path):
+    for k in _MEM_ENV:
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(text_sources, "_CGROUP_MEM_FILES", (str(tmp_path / "nope"),))
+
+
+def test_memory_limit_is_40_percent_of_slurm_mem(monkeypatch, no_mem_info):
+    monkeypatch.setenv("SLURM_MEM_PER_NODE", "65536")  # --mem=64G
+    assert text_sources.duckdb_memory_limit() == "26214MB"
+
+
+def test_memory_limit_from_per_cpu(monkeypatch, no_mem_info):
+    monkeypatch.setenv("SLURM_MEM_PER_CPU", "4000")
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", "8")
+    assert text_sources.duckdb_memory_limit() == "12800MB"
+
+
+def test_memory_limit_floor(monkeypatch, no_mem_info):
+    monkeypatch.setenv("SLURM_MEM_PER_NODE", "1000")
+    assert text_sources.duckdb_memory_limit() == "2048MB"
+
+
+def test_memory_limit_from_cgroup(monkeypatch, no_mem_info, tmp_path):
+    f = tmp_path / "memory.max"
+    f.write_text(f"{64 * 2**30}\n")
+    monkeypatch.setattr(text_sources, "_CGROUP_MEM_FILES", (str(f),))
+    assert text_sources.duckdb_memory_limit() == "26214MB"
+    f.write_text("max\n")
+    assert text_sources.duckdb_memory_limit() is None
+
+
+def test_open_staging_sets_memory_limit_only_when_known(monkeypatch, no_mem_info, tmp_path):
+    db = make_staging_fixture(tmp_path / "staging.duckdb")
+    con = text_sources.open_staging(db)
+    default = con.execute("SELECT current_setting('memory_limit')").fetchone()[0]
+    con.close()
+    assert text_sources.duckdb_memory_limit() is None
+
+    monkeypatch.setenv("SLURM_MEM_PER_NODE", "10000")  # -> 4000 MB
+    con = text_sources.open_staging(db)
+    limit = con.execute("SELECT current_setting('memory_limit')").fetchone()[0]
+    con.close()
+    assert limit != default and limit.startswith(("3.7", "3.9", "4.0")), limit

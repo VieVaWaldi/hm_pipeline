@@ -27,6 +27,7 @@ from common.log.logger import setup_logging
 from pipelines.core_v4.enrichment.cli import add_common_args, resolve
 from pipelines.core_v4.enrichment.fingerprint import staging_stamp
 from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
+from pipelines.core_v4.enrichment.text_sources import open_staging
 
 COUNTRY_REGIONS_CSV = Path(__file__).resolve().parents[3] / "enrichment" / "regions" / "country_regions.csv"
 BATCH_ROWS = 100_000
@@ -83,7 +84,7 @@ def main() -> None:
     setup_logging("core_v4-regions", "run")
     res = resolve(args)
     out = SideOutput(res.enrichment_dir, "regions", "organization", res.shard)
-    con = duckdb.connect(res.db, read_only=True)
+    con = open_staging(res.db)
     try:
         run(con, out, limit=res.limit, write=not res.dry_run)
     finally:

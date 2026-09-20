@@ -52,6 +52,19 @@ def test_begin_removes_stale_tmp_and_success(tmp_path):
     assert len(out.parts()) == 1  # existing parts are kept for resume
 
 
+def test_begin_only_removes_own_shard_tmp(tmp_path):
+    a, b = SideOutput(tmp_path, "dch", "work", shard=Shard(0, 2)), SideOutput(tmp_path, "dch", "work", shard=Shard(1, 2))
+    b.begin()
+    ta, tb = a.dir / "part-000-000003.parquet.tmp", a.dir / "part-001-000003.parquet.tmp"
+    ta.write_bytes(b"torn")
+    tb.write_bytes(b"in flight")  # shard B is writing right now
+    a.begin()
+    assert not ta.exists() and tb.read_bytes() == b"in flight"
+    t0 = SideOutput(tmp_path, "dch", "work", shard=Shard(0, 2), tier=0)
+    t0.begin()  # another tier of the same shard index is not ours either
+    assert tb.exists()
+
+
 def test_done_ids_resume_anti_join(tmp_path):
     out = SideOutput(tmp_path, "dch", "work")
     assert duckdb.sql(out.done_ids_sql()).fetchall() == []  # no parts yet: empty relation

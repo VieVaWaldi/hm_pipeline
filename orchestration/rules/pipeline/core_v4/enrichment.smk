@@ -240,7 +240,7 @@ rule core_v4_nllb:
         slurm_partition="gpu-test",
         gres="gpu:1",
         cpus_per_task=16,
-        mem_mb=64000,
+        mem_mb=128000,  # 64 GB was OOM-killed at works scale (DuckDB buffer pool on staging, see fixes/02); open_staging now caps it
         runtime=lambda wildcards: _CORE_V4_NLLB_RUNTIME[wildcards.unit],  # gpu-test max is 12 h; resumable
     log:
         _core_v4_log("nllb"),
@@ -293,7 +293,7 @@ rule core_v4_topics:
         **_CORE_V4_UNIT_PARAMS,
     resources:
         slurm_partition=CORE_V4_PARTITION,
-        mem_mb=64000,
+        mem_mb=lambda wildcards: 240000 if wildcards.unit == "work-t1" else 64000,  # tier 1 reads all NLLB translations (2026-09-20: DCH t1 OOM at 128 GB, ran at 240 GB)
         runtime=1440,
         cpus_per_task=16,
     log:
@@ -325,7 +325,7 @@ rule core_v4_theme:
         **_CORE_V4_UNIT_PARAMS,
     resources:
         slurm_partition=CORE_V4_PARTITION,
-        mem_mb=64000,
+        mem_mb=lambda wildcards: 240000 if wildcards.unit == "work-t1" else 64000,  # tier 1 reads all NLLB translations (2026-09-20: DCH t1 OOM at 128 GB, ran at 240 GB)
         runtime=480,
         cpus_per_task=4,
     log:
@@ -353,7 +353,7 @@ rule core_v4_minorities:
         **_CORE_V4_UNIT_PARAMS,
     resources:
         slurm_partition=CORE_V4_PARTITION,
-        mem_mb=64000,
+        mem_mb=lambda wildcards: 240000 if wildcards.unit == "work-t1" else 128000,  # tier 1 reads all NLLB translations (2026-09-20: DCH t1 OOM at 128 GB, ran at 240 GB) tier 0: 64 GB OOM'd
         runtime=1440,
         cpus_per_task=16,
     log:
@@ -381,7 +381,7 @@ rule core_v4_pillars:
         **_CORE_V4_UNIT_PARAMS,
     resources:
         slurm_partition=CORE_V4_PARTITION,
-        mem_mb=32000,
+        mem_mb=lambda wildcards: 240000 if wildcards.unit == "work-t1" else 96000,  # tier 1 reads all NLLB translations (2026-09-20: DCH t1 OOM at 128 GB, ran at 240 GB) tier 0: 32 GB OOM'd
         runtime=720,
         cpus_per_task=4,
     log:
@@ -414,7 +414,7 @@ rule core_v4_dch:
         gres="gpu:a100:1",
         constraint="a100_80gb",
         cpus_per_task=16,
-        mem_mb=128000,
+        mem_mb=lambda wildcards: 240000 if wildcards.unit == "work-t1" else 128000,  # tier 1 reads all NLLB translations (2026-09-20: DCH t1 OOM at 128 GB, ran at 240 GB)
         runtime=720,
     log:
         _core_v4_log("dch"),

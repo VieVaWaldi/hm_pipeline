@@ -1,0 +1,176 @@
+diff --git a/src/pipelines/core_v4/enrichment/geolocation.py b/src/pipelines/core_v4/enrichment/geolocation.py
+index 67e11a4..e361d60 100644
+--- a/src/pipelines/core_v4/enrichment/geolocation.py
++++ b/src/pipelines/core_v4/enrichment/geolocation.py
+@@ -40,6 +40,7 @@ from enrichment.geolocation.geocoder import Estimate, GeolocationEnricher, Insti
+ from pipelines.core_v4.enrichment.cli import add_common_args, resolve
+ from pipelines.core_v4.enrichment.fingerprint import staging_stamp
+ from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
++from pipelines.core_v4.enrichment.text_sources import open_staging
+ 
+ READ_BATCH = 5_000
+ 
+@@ -172,7 +173,7 @@ def main() -> None:
+         raise SystemExit("geolocation shares one single-writer cache file: run it unsharded")
+ 
+     out = SideOutput(res.enrichment_dir, "geolocation", "organization", res.shard)
+-    con = duckdb.connect(res.db, read_only=True)
++    con = open_staging(res.db)
+     register_country_macro(con)
+     # --test never sends anything: a budget of 0 answers only from the cache
+     enricher = GeolocationEnricher(
+diff --git a/src/pipelines/core_v4/enrichment/regions.py b/src/pipelines/core_v4/enrichment/regions.py
+index f9b8ef2..331e84f 100644
+--- a/src/pipelines/core_v4/enrichment/regions.py
++++ b/src/pipelines/core_v4/enrichment/regions.py
+@@ -27,6 +27,7 @@ from common.log.logger import setup_logging
+ from pipelines.core_v4.enrichment.cli import add_common_args, resolve
+ from pipelines.core_v4.enrichment.fingerprint import staging_stamp
+ from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
++from pipelines.core_v4.enrichment.text_sources import open_staging
+ 
+ COUNTRY_REGIONS_CSV = Path(__file__).resolve().parents[3] / "enrichment" / "regions" / "country_regions.csv"
+ BATCH_ROWS = 100_000
+@@ -83,7 +84,7 @@ def main() -> None:
+     setup_logging("core_v4-regions", "run")
+     res = resolve(args)
+     out = SideOutput(res.enrichment_dir, "regions", "organization", res.shard)
+-    con = duckdb.connect(res.db, read_only=True)
++    con = open_staging(res.db)
+     try:
+         run(con, out, limit=res.limit, write=not res.dry_run)
+     finally:
+diff --git a/src/pipelines/core_v4/enrichment/test_text_sources.py b/src/pipelines/core_v4/enrichment/test_text_sources.py
+index da1ecaa..72ef0f5 100644
+--- a/src/pipelines/core_v4/enrichment/test_text_sources.py
++++ b/src/pipelines/core_v4/enrichment/test_text_sources.py
+@@ -6,6 +6,7 @@ import pytest
+ 
+ from pipelines.core_v4.enrichment.fixtures import make_staging_fixture, project_id, work_id
+ from pipelines.core_v4.enrichment.side_outputs import Shard, SideOutput
++from pipelines.core_v4.enrichment import text_sources
+ from pipelines.core_v4.enrichment.text_sources import NllbNotReadyError, field_sql, text_batches, text_sql
+ 
+ 
+@@ -141,3 +142,52 @@ def test_tier_restricts_works_and_gates_nllb_per_tier(staging, tmp_path):
+ def test_tier_in_streaming_batches(staging, tmp_path):
+     ids = {i for b in text_batches(staging, "work", ["title"], with_nllb=False, enrichment_dir=tmp_path, tier=0) for i in b.column("id").to_pylist()}
+     assert ids == {work_id(1), work_id(2)}
++
++
++_MEM_ENV = ("SLURM_MEM_PER_NODE", "SLURM_MEM_PER_CPU", "SLURM_CPUS_PER_TASK")
++
++
++@pytest.fixture
++def no_mem_info(monkeypatch, tmp_path):
++    for k in _MEM_ENV:
++        monkeypatch.delenv(k, raising=False)
++    monkeypatch.setattr(text_sources, "_CGROUP_MEM_FILES", (str(tmp_path / "nope"),))
++
++
++def test_memory_limit_is_40_percent_of_slurm_mem(monkeypatch, no_mem_info):
++    monkeypatch.setenv("SLURM_MEM_PER_NODE", "65536")  # --mem=64G
++    assert text_sources.duckdb_memory_limit() == "26214MB"
++
++
++def test_memory_limit_from_per_cpu(monkeypatch, no_mem_info):
++    monkeypatch.setenv("SLURM_MEM_PER_CPU", "4000")
++    monkeypatch.setenv("SLURM_CPUS_PER_TASK", "8")
++    assert text_sources.duckdb_memory_limit() == "12800MB"
++
++
++def test_memory_limit_floor(monkeypatch, no_mem_info):
++    monkeypatch.setenv("SLURM_MEM_PER_NODE", "1000")
++    assert text_sources.duckdb_memory_limit() == "2048MB"
++
++
++def test_memory_limit_from_cgroup(monkeypatch, no_mem_info, tmp_path):
++    f = tmp_path / "memory.max"
++    f.write_text(f"{64 * 2**30}\n")
++    monkeypatch.setattr(text_sources, "_CGROUP_MEM_FILES", (str(f),))
++    assert text_sources.duckdb_memory_limit() == "26214MB"
++    f.write_text("max\n")
++    assert text_sources.duckdb_memory_limit() is None
++
++
++def test_open_staging_sets_memory_limit_only_when_known(monkeypatch, no_mem_info, tmp_path):
++    db = make_staging_fixture(tmp_path / "staging.duckdb")
++    con = text_sources.open_staging(db)
++    default = con.execute("SELECT current_setting('memory_limit')").fetchone()[0]
++    con.close()
++    assert text_sources.duckdb_memory_limit() is None
++
++    monkeypatch.setenv("SLURM_MEM_PER_NODE", "10000")  # -> 4000 MB
++    con = text_sources.open_staging(db)
++    limit = con.execute("SELECT current_setting('memory_limit')").fetchone()[0]
++    con.close()
++    assert limit != default and limit.startswith(("3.7", "3.9", "4.0")), limit
+diff --git a/src/pipelines/core_v4/enrichment/text_sources.py b/src/pipelines/core_v4/enrichment/text_sources.py
+index 7cca47b..57e2347 100644
+--- a/src/pipelines/core_v4/enrichment/text_sources.py
++++ b/src/pipelines/core_v4/enrichment/text_sources.py
+@@ -24,6 +24,7 @@ Ordering is not guaranteed (no ORDER BY on 50M rows); resume with `exclude_ids_s
+ """
+ 
+ import logging
++import os
+ from pathlib import Path
+ from typing import Iterator, List, Literal, Optional, Sequence, Union
+ 
+@@ -169,13 +170,54 @@ def text_sql(
+     return sql
+ 
+ 
++# DuckDB's memory_limit defaults to ~80% of the NODE's RAM and ignores the SLURM cgroup (a 64G job on a 257G node is
++# OOM-killed), so open_staging caps itself: this share of the allocation, the rest is python, models, arrow batches.
++DUCKDB_MEM_SHARE = 0.4
++DUCKDB_MEM_MIN_MB = 2048
++_CGROUP_MEM_FILES = ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes")
++
++
++def slurm_memory_mb() -> Optional[int]:
++    """Memory of this job in MB from SLURM_MEM_PER_NODE, else SLURM_MEM_PER_CPU * SLURM_CPUS_PER_TASK, else the
++    cgroup limit; None when unknown (local dev, tests) or unlimited."""
++    try:
++        if os.environ.get("SLURM_MEM_PER_NODE"):
++            return int(os.environ["SLURM_MEM_PER_NODE"])
++        if os.environ.get("SLURM_MEM_PER_CPU") and os.environ.get("SLURM_CPUS_PER_TASK"):
++            return int(os.environ["SLURM_MEM_PER_CPU"]) * int(os.environ["SLURM_CPUS_PER_TASK"])
++    except ValueError:
++        pass
++    for f in _CGROUP_MEM_FILES:
++        try:
++            raw = Path(f).read_text().strip()
++        except OSError:
++            continue
++        if raw.isdigit() and int(raw) < 2**60:  # "max" / ~2**63 = unlimited
++            return int(raw) // 2**20
++    return None
++
++
++def duckdb_memory_limit() -> Optional[str]:
++    """DuckDB `memory_limit` value (40% of the job's memory, at least 2 GB) or None if the allocation is unknown."""
++    mb = slurm_memory_mb()
++    if not mb or mb <= 0:
++        return None
++    return f"{max(int(mb * DUCKDB_MEM_SHARE), DUCKDB_MEM_MIN_MB)}MB"
++
++
+ def open_staging(db_path: Optional[Union[str, Path]] = None) -> duckdb.DuckDBPyConnection:
+-    """Read-only connection to the core_v4 staging duckdb (enrichments never write to it)."""
++    """Read-only connection to the core_v4 staging duckdb (enrichments never write to it).
++    Caps DuckDB's memory to the SLURM allocation when known (see duckdb_memory_limit)."""
+     if db_path is None:
+         from common.config.pipelines import get_pipeline_paths
+ 
+         db_path = get_pipeline_paths()["core_v4"]["path_duck_staging"]
+-    return duckdb.connect(str(db_path), read_only=True)
++    con = duckdb.connect(str(db_path), read_only=True)
++    limit = duckdb_memory_limit()
++    if limit:
++        con.execute(f"SET memory_limit = '{limit}'")
++        logging.info(f"duckdb memory_limit = {limit}")
++    return con
+ 
+ 
+ def text_batches(

@@ -16,13 +16,19 @@ PROD_SHARDS = {"works": 4, "projects": 2, "organisations": 1, "minorities": 1, "
 TITLE_SHINGLE = 3
 
 
+# Stored-field codec per index. Measured on real project data (200k slice, 2000-hit fetch of the query network): best_compression 255 ms,
+# default (LZ4) 33 ms for +17% disk, so everything the api fetches in bulk (projects, organisations mget) uses the default codec. Only
+# works (26+ GB, fetched 10-20 docs per page) keeps best_compression: smaller index = more of it in the page cache on the HDD VM.
+CODEC = {"works": "best_compression"}
+
+
 # HDD notes from heritagemonitor/infra/PRODUCTION.md.
-def settings(shards: int = 1, refresh: str = "30s") -> dict:
+def settings(shards: int = 1, refresh: str = "30s", codec: str = "default") -> dict:
     return {
         "number_of_shards": shards,
         "number_of_replicas": 0,
         "refresh_interval": refresh,
-        "codec": "best_compression",
+        "codec": codec,
         "merge.scheduler.max_thread_count": 1,
         "translog.flush_threshold_size": "1gb",
         "analysis": {
@@ -168,7 +174,7 @@ def parse_shards(spec: str | None) -> dict[str, int]:
 def dump(out_dir: Path) -> None:
     out_dir.mkdir(exist_ok=True)
     for name in INDEX_NAMES:
-        body = {"settings": settings(PROD_SHARDS[name]), "mappings": mapping_for(name)}
+        body = {"settings": settings(PROD_SHARDS[name], codec=CODEC.get(name, "default")), "mappings": mapping_for(name)}
         (out_dir / f"{name}.json").write_text(json.dumps(body, indent=2) + "\n")
         print("wrote", out_dir / f"{name}.json")
 

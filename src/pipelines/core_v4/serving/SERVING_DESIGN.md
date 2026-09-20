@@ -89,11 +89,10 @@ fetched 2026-09-20). Approximate on purpose: one date applied to grants of all y
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | 1.1460 | 0.85880 | 0.9462 | 11.2915 | 10.8095 | 7.4754 | 4.3635 | 24.339 | 364.28 | 5.2647 | 139.40 | 55.9077 |
 
-Others in the ECB list (only add if agent_job B shows they matter): JPY 180.94, AUD 1.6095, BRL 5.8857, CAD 1.6056, CNY 7.6755, HKD 8.9903,
+Others in the ECB list (all of them are in `export/sql/00_macros.sql`; agent_job B shows only USD/EUR/GBP/SEK/AUD/CHF/HRK matter): JPY 180.94, AUD 1.6095, BRL 5.8857, CAD 1.6056, CNY 7.6755, HKD 8.9903,
 IDR 20424.81, ILS 3.4812, INR 109.8755, KRW 1590.76, MXN 19.6855, MYR 4.6763, NZD 2.0068, PHP 71.972, SGD 1.4651, THB 38.225, ZAR 18.6482.
-Not in the ECB list: **HRK** (Croatia is in the euro since 2023, fixed conversion 7.53450 HRK = 1 EUR, appears in the mini DB) and **BGN**
-(fixed peg 1.95583 BGN = 1 EUR). These two fixed rates are from memory of the official fixings, verify before shipping.
-The values were read via a page-summary fetch, not a raw download: **spot-check 2-3 rates against the ECB page before the export runs.**
+Spot-checked against the raw ECB xml on 2026-09-20 (USD, GBP, SEK, CHF, NOK, AUD, INR match). Not in the ECB list: **HRK** (Croatia is in the euro since 2023, fixed conversion 7.53450 HRK = 1 EUR, appears in the mini DB) and **BGN**
+(fixed peg 1.95583 BGN = 1 EUR). These two fixed rates are the official fixings (from memory, not re-fetched); together they cover 0.16% of the nominal money.
 
 ## 4. Index topology (top level)
 | Index | Docs | Purpose |
@@ -105,11 +104,11 @@ The values were read via a page-summary fetch, not a raw download: **spot-check 
 | `grants` | ? (derived) | funding search. 1 shard. |
 | topics | 4.5k | **not an index**: static table held by the api. |
 
-All: `number_of_replicas: 0`. HDD settings from `PRODUCTION.md` apply (`merge.scheduler.max_thread_count: 1`, `best_compression`).
+All: `number_of_replicas: 0`. HDD settings from `PRODUCTION.md` apply (`merge.scheduler.max_thread_count: 1`); stored-field codec per index, see section 6.
 
 ### projects (sketch, not the final mapping)
 Own columns (all, see READ_CORE_V4_FINISHED.md) + denormalised: `org_ids[]` (coordinator first), `org_names[]` (text, low boost),
-`org_regions[]`, `org_countries[]`, `coordinator_id`, `org_count`, `work_count`, `topic_id/subfield_id/field_id/domain_id`,
+`org_regions[]`, `org_countries[]`, `coordinator_ids[]`, `org_count`, `work_count`, `topic_id/subfield_id/field_id/domain_id`,
 `minority_qids[]` (all), `funder/funding_stream` keywords, `funded_amount(_eur)`, `funded_eur_per_org`, `year`, `is_ch`, `pred`, `is_translated`,
 `pillars` (bits -> also 5 booleans or a keyword array for facets), `theme`.
 Search fields: `acronym`, `title`, `summary` (+ `keywords`, `grantId`). `search_as_you_type` on `acronym`/`title` for autocomplete.
@@ -134,7 +133,7 @@ minorities through their projects. Default ranking: seed groups first (`source_c
 
 ### grants (derived)
 One doc per funding stream: funder, jurisdiction, programme, action, description, `project_count`, `total_funded_eur`, `dch_project_count`.
-Number of docs unknown until the prod analysis (mini DB: 121 distinct streams in 1000 projects).
+6,074 real streams + 46 per-funder pseudo streams `NONE::<funder>` (fundings without a stream id, D20) = **6,120 docs** (real data).
 
 ## 5. UI implications (per index, for heritagemonitor)
 - **Global**: ids are strings everywhere; routes use ids. Corpus selector SCI/DCH = `is_ch` filter on `projects`; on `organisations` via
@@ -155,11 +154,92 @@ Number of docs unknown until the prod analysis (mini DB: 121 distinct streams in
 - **funding**: paged list + map columns from the same query (D10), 2nd request for the map.
 - **collaboration**: organisationNetwork autocomplete on organisations; map arcs from D11; queryNetwork needs a `max_edges` parameter in the UI.
 
-## 6. Field-by-field mappings
-_TODO once the prototype (`prototype/`, `PROTOTYPE_REPORT.md`) and the prod analysis (`agent_job/AGENT_JOB_RESULTS.md`) are in. One subsection per index: mapping JSON, settings,
-export SQL, api query examples, facet tiers._
+## 6. Final mappings, export and measurements (2026-09-20, `export/`)
+Code and JSON live in `export/` (see `EXPORT_README.md` for how to run everything). `prototype/` and `PROTOTYPE_REPORT.md` are history (topology proof on
+the mini DB); `export/` supersedes them and adds D13-D33. **Mapping + settings JSON per index (prod shard counts): `export/mappings/*.json`**, generated from
+`export/mappings.py` (`python mappings.py --dump`); every index is `dynamic: strict`.
+
+### 6.1 Files
+| File | What |
+|---|---|
+| `export/sql/00_macros.sql`, `01_common.sql` | ECB table, currency/text/name-key/year/language macros, the works url macros (results G6), shared TEMP tables (`po`, `p_orgs`, `p_money`, `p_share`, `p_fundings`, ...) |
+| `export/sql/{organisations,projects,minorities,grants,works,topics,publishers}.sql` | one COPY per index -> zstd Parquet; works is written per chunk (`id % N = k`) |
+| `export/export.py`, `export.sbatch` | runner (DB path, out dir, `--works-chunks`, `--works-sample`, memory/threads/temp dir, resumable) and the cluster job |
+| `export/mappings.py`, `mappings/*.json`, `load.py` | settings + mappings; streaming resumable loader (VM: serving group only) |
+| `export/queries.py`, `test_usecases.py` (42 checks), `run_all.sh` | the api-side query builders (syntax rewrite, typo fallback, filters, pagination cap) and the mini-DB round trip |
+| `export/real_build.py`, `real_smoke.py`, `measure_sayt.py` | real-data smoke tools (slice only, see 6.5) |
+
+Output layout: `projects/projects.parquet`, `organisations/organisations.parquet`, `minorities/`, `grants/`, `works/works_00..NN.parquet`, `api/topics.json`,
+`api/publishers.json`, `export_manifest.json`. Index names in prod: `projects organisations works minorities grants` (loader `--prefix`/`--suffix _v1` for alias swaps).
+
+### 6.2 Doc shapes (keyword unless noted; `[]` = array; all ids are strings)
+- **projects** (3.89M, 2 shards, default codec): `id, openaireId*, grantId, doi*, title (text + title.sayt), acronym (text + .sayt + .keyword), summary (text), keywords (text),
+  subjects*, websiteUrl*, callIdentifier, startDate (date), endDate*, year (int, NULL outside 1950..2040), fundings* (object, cleaned), frameworkProgrammes[],
+  currency, funded_amount, funded_amount_eur, funded_eur_per_org (double), is_translated, is_ch (bool), pred* (display only), minority_qids[], pillars (byte),
+  pillar_list[], theme, topic_id/subfield_id/field_id/domain_id (nullable), org_ids[] (coordinators first), org_names[] (text, positions), org_regions[]
+  (incl. `Unknown`), org_countries[], coordinator_ids[], org_count, work_count, funder[], programme[], funder_names[], funding_stream_ids[]`.  (* = `index:false`, shown only)
+- **organisations** (494k, 1 shard, default codec): `id, openaireId*, legalName / legalShortName / alternativeNames (text + .sayt), websiteUrl*, countryCode, rorId, wikiId*, pids*,
+  rorStatus, rorEstablished*, rorTypes[] (`unknown` bucket), rorLocations*, rorRelationships*, geo (geo_point), geolocation_source, address_*, nuts3, region (`Unknown` bucket),
+  name_key, project_count, work_count, dch_project_count, has_dch_project, total_funding_eur, rank_projects / rank_works / rank_funding (rank_feature, absent when 0)`.
+- **works** (50M, **4 shards**, best_compression): `id (_id only), title (text), authors[] (first 20, text), author_count*, publication_date*, year, publisher, container_name (text),
+  open_access_color, best_access_right, language (3-letter, normalised), citation_count, doi, pdf_url*, landing_url*, project_ids[], organisation_ids[] (max 100), org_count*, link_tier,
+  is_ch_via_project (proxy), minority_qids[] (proxy)`.
+- **minorities** (278, 1 shard): all `minority` columns + `has_subgroups, is_seed, project_count, dch_project_count, org_count, work_count, topic_ids[], topic_counts*`, and
+  `project_title_blob` (text, searchable, excluded from `_source`).
+- **grants** (6,120, 1 shard): `id, funder, programme, action, description (text + .sayt), funder_name, jurisdiction, is_pseudo, project_count, dch_project_count, total_funded_eur`.
+- api tables: `api/topics.json` (4,516 rows, held in api memory), `api/publishers.json` (top 3,000, held in api memory).
+
+### 6.3 Sizes and speed (measured on a random real-data slice, forcemerged; extrapolated linearly)
+The slice = random 5.3% of the projects (204,653), 0.4% of the tier-0 works (200,210) and the 87,748 organisations they reference, all from the cluster dry-run export
+turned into the final shape by `real_build.py`; 1 shard each, laptop OpenSearch with a 1 GB heap.
+| Index | slice store | B/doc | prod extrapolation | Load speed on the laptop |
+|---|---|---|---|---|
+| projects (default codec, `title.sayt` 3) | 363.7 MB | 1,777 | **~6.9 GB** (5.9 GB with best_compression) | 9,000 docs/s -> 3.9M in ~7 min |
+| works (best_compression), tier-0 docs | 105.7 MB | 528 | **~20-26 GB** (tier-1 docs are smaller: fewer orgs/authors; 26 GB = all at tier-0 density) | 20,400 docs/s -> 50M in ~41 min |
+| organisations | 130.8 MB | 1,490 | ~0.6-0.75 GB (slice is biased to project-connected orgs) | 10,800 docs/s |
+| grants / minorities | 5.0 MB / 0.6 MB | | 5 MB / 0.6 MB | |
+Total primary store ~ **28-34 GB**. On the HDD VM (12g heap, 8 cores) plan several times the laptop load times: works is the long pole (hours), forcemerge on HDD adds more; projects,
+organisations, minorities and grants are ready within ~30 min. Export SQL on real-sized raw tables: organisations + projects + minorities + grants in 67 s on the laptop; the cluster run over the
+132 GB file is NOT measured (dominated by scanning `work.instances`/`authors`; expect tens of minutes, not hours).
+
+### 6.4 Latency (real slice, median of 6 warm runs, ms; scale with the matching doc count, see caveat)
+| Check | ms | Check | ms |
+|---|---|---|---|
+| projects: 1 word + topic/funder/programme/year facets (9.9k hits) | 5 | works: 1 word, sort score+citations | 4 |
+| projects: filters DCH + year + funder + budget sort | 3 | works: query + year + OA + language + DCH proxy | 3 |
+| projects: blank query, page 1, `track_total_hits` 10k | 2 | works: typo fallback (fuzzy AND, max_expansions 20) | 9 |
+| projects: typo fallback (strict 0 -> fuzzy) | 10 | project -> works tab / org -> works tab | 2 / 7 |
+| topic modal counts SCI / DCH | 7 / 2 | org autocomplete / project title autocomplete | 2 / 2 |
+| funding map agg (blank / 1 word, top 500 orgs) | 4 / 4 | org search with rank_feature blend | 6 |
+| experts agg (top 200 orgs) | 2 | org network: partners agg (501 partners) + mget 500 org docs | 3 + 22 |
+| query network: fetch 2,000 projects (org_ids only) | 48 | grants match_all + funder/programme facets | 2 |
+**Caveat:** the slice has ~1/19 of the projects and ~1/250 of the works, a warm page cache and no HDD. Aggregations and the fuzzy fallback scale with matching docs (x19 for projects at
+worst, x250 for works, divided by the shard count); the first query after a restart on the HDD VM will be far slower. Re-time on the VM once `works` is loaded, especially the works typo fallback.
+
+### 6.5 Findings from the real data that changed the design
+1. **Stored-field codec.** With `best_compression` fetching many hits is slow: 2,000 hits = 255 ms, 500 mget docs = 81 ms (cost is the per-hit stored-field block, even for `_id` only).
+   The default codec does 2,000 hits in 33 ms and the mget in 22 ms for +17% disk (projects 310 -> 364 MB). **projects, organisations, minorities, grants use `default`; works keeps
+   `best_compression`** (page size 10-20, 20+ GB and an HDD: smaller is better). Applied in `mappings.CODEC`.
+2. **Project title autocomplete (kept, user request).** `title.sayt` costs +862 B/doc with `max_shingle_size` 3 (+3.4 GB at 3.9M) and +481 B/doc with 2 (+1.9 GB); plain title is 129 B/doc.
+   hit@8 of the full title after typing k words (300 real titles): shingle 3 = 17 / 63 / 89 / 97 / 98 % for k = 1..5, shingle 2 = 17 / 60 / 84 / 96 / 98 %. **Decision: keep 3** (the extra 1.5 GB is
+   irrelevant on 5 TB and it is measurably better at k = 2-3); `load.py --title-shingle 2` and `mappings.TITLE_SHINGLE` switch it.
+3. **Query network fetch size.** `size: 2000` costs ~48 ms with the default codec, so `queries.query_network_body` uses 2,000 projects, `docvalue_fields`, no `_source` (no measurable difference to `_source`
+   filtering; the cost is the per-hit fetch). With `best_compression` the same request would be ~5x slower.
+4. **Org network for US orgs is trivial**: NIH projects mostly have one org (1.4 orgs/project), so JHU has few partners; the interesting networks are the EU coordinators (Fraunhofer: 501 partners in the slice).
+5. `es.reindex` returns >100 headers and crashes Python 3.14's http client; the loader never uses it (bulk only). Use bulk or `wait_for_completion=false` if a reindex is ever needed.
+6. **What the cluster dry-run files (agent_job/out) lack vs the final shape**: `funder`, `programme`, `funder_names`, `funding_stream_ids`; currency normalisation (`currency`, `funded_amount_eur`, `funded_eur_per_org`); `coordinator_ids`
+   (only `coordinator_id`); `org_names`, `org_regions`, `org_countries` on projects; `minority_qids` and `org_count` on works, normalised `language`; on organisations `name_key`, `total_funding_eur`, `dch_project_count`,
+   `has_dch_project`, `geo`, `rank_*`, the `Unknown` buckets; the grants file is thin (5 columns, no pseudo streams). Nothing in the dry-run is wrong, it predates D13-D33. Rebuild from the DB with `export.sbatch`.
+7. Verified on the real slice/derived data: 35,975 works with `is_ch_via_project`, 922,801 works without project, 8,795 projects without topic, 81,043 with a coordinator, 103 funders, 9,293 projects with a minority,
+   157,268 orgs in region `Unknown`, 367,699 with rorTypes `unknown`, grants 6,074 + 46 pseudo: all equal to the cluster analysis.
+
+### 6.6 Deviations from the earlier text of this document
+`coordinator_ids[]` (not `coordinator_id`); grants get one pseudo stream per funder instead of one global bucket (`NONE::<funder>`, also present in `projects.funding_stream_ids`);
+`total_cost` is not exported; works get `org_count`; organisations get `rank_*` fields (rank_feature) next to the plain counts used for sorting; `publishers.json` and `topics.json` are written by the export;
+codec per index (6.5.1); text cleaning also strips HTML tags from summaries and unescapes the `fundings` object.
 
 ## 7. Open questions
-Currency table trim + HRK/BGN check (D14), collaboration edge index (D11), real `pdf_url` coverage (D5), grants count (D7), funder/programme split (D17),
-works shard count and bytes/doc (prototype), typo-tolerance cost on works (D6), publisher filter UI (distinct publisher count from section F),
-nothing else blocking the mappings.
+- Cluster export runtime/memory on the real 132 GB file (not measured; run `export.sbatch` with `--works-sample 1000` first, then full).
+- Works typo-fallback and first-query latency on the HDD VM (6.4 caveat); works shard count 4 and heap size are hypotheses until measured on the VM.
+- Collaboration pair index (D11): still no; revisit only if the live aggs on the VM are too slow.
+- D19 duplicate organisations: `name_key` is a v1 mitigation; a real merge (canonical id) is post-deadline. D32 minority precision review (see `agent_job/MINORITY_REVIEW.md` if present).

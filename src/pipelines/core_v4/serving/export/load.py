@@ -20,7 +20,7 @@ import pyarrow.parquet as pq
 from opensearchpy import OpenSearch
 from opensearchpy.helpers import parallel_bulk
 
-from mappings import INDEX_NAMES, PROD_SHARDS, mapping_for, parse_shards, settings
+from mappings import CODEC, INDEX_NAMES, PROD_SHARDS, mapping_for, parse_shards, settings
 
 
 def client(host: str, port: int, ssl: bool = False, timeout: int = 120) -> OpenSearch:
@@ -74,7 +74,7 @@ def load_index(es: OpenSearch, root: Path, name: str, args) -> int:
         sys.exit(f"[{name}] index {index_name} exists but there is no load state: use --recreate (or delete it)")
     if not exists:
         shards = parse_shards(args.shards)[name]
-        es.indices.create(index=index_name, body={"settings": settings(shards, refresh="-1"),
+        es.indices.create(index=index_name, body={"settings": settings(shards, refresh="-1", codec=CODEC.get(name, "default")),
                                                   "mappings": mapping_for(name, args.title_shingle)})
         state = {"done": {}}
         print(f"[{name}] created {index_name}: {shards} shard(s), replicas 0, refresh -1")

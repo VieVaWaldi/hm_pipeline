@@ -193,6 +193,14 @@ def org_network_body(org_id: str, size: int = 500) -> dict:
     return {"size": 0, "query": {"term": {"org_ids": org_id}}, "aggs": {"partners": {"terms": {"field": "org_ids", "size": size + 1}}}}
 
 
+def query_network_body(q: str, max_projects: int = 2000, **filters) -> dict:
+    """Query network (5.2): the top-N matching projects, org_ids only. docvalue_fields, no _source. The cost is the per-hit fetch of stored fields
+    (`_id`): ~0.13 ms/hit with best_compression, ~0.017 ms/hit with the default codec projects use (SERVING_DESIGN.md section 6). The api builds the
+    edges from these lists (cap orgs per project, cap max_edges) and never sends pair lists over the wire."""
+    return {"size": max_projects, "_source": False, "docvalue_fields": ["org_ids"], "track_total_hits": False,
+            "query": {"bool": {"must": sqs(q, PROJECT_FIELDS), "filter": project_filters(**filters)}}}
+
+
 def funding_aggs(size: int = 500) -> dict:
     """Funding map: per-org sum of the equal-split EUR share over the projects that match the query + filters (D10/D13)."""
     return {"orgs": {"terms": {"field": "org_ids", "size": size, "order": {"funding": "desc"}},

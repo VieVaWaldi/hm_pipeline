@@ -8,7 +8,7 @@ core_v2_geolocations.duckdb
 /logs
 /data
 /checkpoints
-/reports
+#/reports
 .claude
 .build
 rmme/

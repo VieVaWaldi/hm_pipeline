@@ -51,14 +51,14 @@ MINORITY_FIELDS = ["group_name_en^5", "search_keywords^4", "native_languages^2",
 
 
 def project_filters(*, corpus: str | None = None, year: tuple[int, int] | None = None, theme=None, pillar=None, topic=None,
-                    field=None, funder=None, stream=None, region=None, minority=None, has_minority=False, org=None) -> list[dict]:
+                    field=None, funder=None, programme=None, stream=None, region=None, minority=None, has_minority=False, org=None) -> list[dict]:
     f: list[dict] = []
     if corpus == "DCH":
         f.append({"term": {"is_ch": True}})
     if year:
         f.append({"range": {"year": {"gte": year[0], "lte": year[1]}}})
     for name, val in (("theme", theme), ("pillar_list", pillar), ("topic_id", topic), ("field_id", field),
-                      ("funder_short", funder), ("funding_stream_ids", stream), ("org_regions", region),
+                      ("funder", funder), ("programme", programme), ("funding_stream_ids", stream), ("org_regions", region),
                       ("minority_qids", minority), ("org_ids", org)):
         if val:
             f.append({"terms": {name: val if isinstance(val, list) else [val]}})
@@ -75,3 +75,53 @@ def projects_body(q="", *, size=10, offset=0, sort=None, aggs=None, **filters) -
     if aggs:
         body["aggs"] = aggs
     return body
+
+
+# ---- typo tolerance (D6): strict first, fuzzy match fallback, "did you mean" -----------------------------------------------
+def split_terms(q: str) -> tuple[str, list[str]]:
+    """(positive words, negated words) from the rewritten query: operators/quotes/parens dropped, -term kept as a negation."""
+    rq = rewrite_query(q)
+    neg = re.findall(r'(?:^|\s)-(\w[\w\-]*)', rq)
+    pos = re.sub(r'(?:^|\s)-\w[\w\-]*', " ", rq)
+    pos = re.sub(r'[+|()"\\]', " ", pos)
+    return re.sub(r"\s+", " ", pos).strip(), neg
+
+
+def fuzzy_query(q: str, fields: list[str], max_expansions: int = 20) -> dict:
+    """Fallback query: every positive word must match (AND) with fuzziness AUTO (0 edits <=2 chars, 1 edit 3-5, 2 edits >5),
+    prefix_length 2 (first two chars must be right: cuts the candidate terms a lot), capped max_expansions. Negations stay strict."""
+    pos, neg = split_terms(q)
+    if not pos:
+        return {"match_all": {}}
+    must = {"multi_match": {"query": pos, "fields": fields, "type": "best_fields", "operator": "and", "fuzziness": "AUTO",
+                            "prefix_length": 2, "max_expansions": max_expansions, "fuzzy_transpositions": True}}
+    if not neg:
+        return must
+    return {"bool": {"must": must, "must_not": [{"multi_match": {"query": n, "fields": fields}} for n in neg]}}
+
+
+def suggest_block(q: str, field: str) -> dict:
+    """'Did you mean' on the (unstemmed) name/title field. term suggester per word: cheap; phrase suggester tried in the tests."""
+    pos, _ = split_terms(q)
+    return {"text": pos, "did_you_mean": {"term": {"field": field, "suggest_mode": "missing", "min_word_length": 4, "prefix_length": 2, "size": 3}}}
+
+
+def search_typo_tolerant(es, index: str, q: str, fields: list[str], filters: list[dict], *, threshold: int = 5, size: int = 10,
+                         extra: dict | None = None, suggest_field: str | None = None, max_expansions: int = 20) -> dict:
+    """Strict simple_query_string first; if fewer than `threshold` hits, rerun as fuzzy (AND, prefix_length 2). Returns hits + info."""
+    import time
+    base = {"track_total_hits": True, "size": size, **(extra or {})}
+    t = time.time()
+    r = es.search(index=index, body={**base, "query": {"bool": {"must": sqs(q, fields), "filter": filters}}})
+    strict_ms = (time.time() - t) * 1000
+    out = {"mode": "strict", "total": r["hits"]["total"]["value"], "strict_ms": strict_ms, "fuzzy_ms": None, "hits": r["hits"]["hits"], "suggest": None}
+    if out["total"] < threshold and q.strip():
+        t = time.time()
+        body = {**base, "query": {"bool": {"must": fuzzy_query(q, fields, max_expansions), "filter": filters}}}
+        if suggest_field:
+            body["suggest"] = suggest_block(q, suggest_field)
+        r2 = es.search(index=index, body=body)
+        out.update(mode="fuzzy", total=r2["hits"]["total"]["value"], fuzzy_ms=(time.time() - t) * 1000, hits=r2["hits"]["hits"])
+        if suggest_field:
+            out["suggest"] = [o["text"] for e in r2["suggest"]["did_you_mean"] for o in e["options"]]
+    return out

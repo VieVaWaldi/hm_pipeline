@@ -1232,6 +1232,11 @@ dependencies = [
 dev = [
     { name = "pytest" },
 ]
+serving = [
+    { name = "duckdb" },
+    { name = "opensearch-py" },
+    { name = "pyarrow" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1278,6 +1283,11 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]
+serving = [
+    { name = "duckdb" },
+    { name = "opensearch-py" },
+    { name = "pyarrow", specifier = ">=25.0.1" },
+]
 
 [[package]]
 name = "httpcore"

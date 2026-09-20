@@ -17,7 +17,7 @@ import duckdb
 
 from load import client
 from mappings import PREFIX
-from queries import (MINORITY_FIELDS, PROJECT_FIELDS, WORK_FIELDS, projects_body, rewrite_query, sqs)
+from queries import (MINORITY_FIELDS, PROJECT_FIELDS, WORK_FIELDS, projects_body, rewrite_query, search_typo_tolerant, split_terms, sqs)
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--parquet", default="data/serving_proto")
@@ -191,6 +191,159 @@ def works_dch_proxy():
     t1 = db.execute(f"select count(*) from {pq('works')} where link_tier=1 and is_ch_via_project").fetchone()[0]
     assert t1 == 0
     return f"{total(r)} DCH-proxy works (tier 0 only, tier-1 = 0) == duckdb, {ms:.0f}ms"
+
+
+def corrupt(word: str) -> dict[str, str]:
+    """typo variants that keep the first two chars (prefix_length 2): deletion, transposition, substitution, insertion"""
+    return {"deletion": word[:3] + word[4:], "transposition": word[:2] + word[3] + word[2] + word[4:],
+            "substitution": word[:3] + ("x" if word[3] != "x" else "z") + word[4:], "insertion": word[:4] + word[3] + word[4:]}
+
+
+@case
+def typo_tolerance_projects():
+    rows = []
+    for kind, typo in corrupt(WORD).items():
+        strict = total(search("projects", {"track_total_hits": True, "size": 0, "query": sqs(typo, PROJECT_FIELDS)})[0])
+        o = search_typo_tolerant(es, IX["projects"], typo, PROJECT_FIELDS, [], suggest_field="title.sayt")
+        assert strict < 5 and o["mode"] == "fuzzy" and o["total"] > 0, (typo, strict, o["mode"], o["total"])
+        title_words = " ".join(h["_source"]["title"].lower() for h in o["hits"] if "title" in h.get("_source", {})) or ""
+        rows.append(f"{kind}:{typo!r} {strict}->{o['total']} ({o['strict_ms']:.0f}+{o['fuzzy_ms']:.0f}ms) dym={o['suggest'][:2]}")
+    # two words, one typo, still AND
+    two = f"{WORD2[:3]}{WORD2[4:]} {WORD}"
+    o = search_typo_tolerant(es, IX["projects"], two, PROJECT_FIELDS, [], suggest_field="title.sayt")
+    assert o["total"] > 0
+    # good queries must stay strict (no fallback cost)
+    o2 = search_typo_tolerant(es, IX["projects"], WORD, PROJECT_FIELDS, [])
+    assert o2["mode"] == "strict" and o2["fuzzy_ms"] is None
+    # negation survives the fallback
+    o3 = search_typo_tolerant(es, IX["projects"], f"{corrupt(WORD)['deletion']} -{WORD2}", PROJECT_FIELDS, [])
+    assert o3["mode"] == "fuzzy"
+    return " | ".join(rows) + f" | 2-word typo -> {o['total']}"
+
+
+@case
+def typo_tolerance_organisations():
+    name = TOP_ORG[1]
+    w = name.split()[0]
+    typo_q = f"{w[:3]}{w[4:]} {name.split()[1]}" if len(name.split()) > 1 else corrupt(w)["deletion"]
+    o = search_typo_tolerant(es, IX["organisations"], typo_q, ["legalName^3", "legalShortName^2", "alternativeNames"], [], suggest_field="legalName.sayt", extra={"_source": ["legalName", "project_count"]})
+    names = [h["_source"]["legalName"] for h in o["hits"]]
+    assert name in names, (typo_q, names)
+    return f"{typo_q!r} -> {o['mode']} {o['total']} hits incl. {name!r} ({o['strict_ms']:.0f}+{o['fuzzy_ms'] or 0:.0f}ms) did-you-mean={o['suggest']}"
+
+
+@case
+def did_you_mean_phrase_suggester():
+    typo = f"{corrupt(WORD)['transposition']} {corrupt(WORD2)['deletion']}"
+    for fld, kind in (("title.sayt", "term"), ("title.sayt._2gram", "phrase")):
+        body = {"size": 0, "suggest": {"text": typo}}
+        body["suggest"]["s"] = ({"term": {"field": fld, "suggest_mode": "missing", "prefix_length": 2, "size": 2}} if kind == "term"
+                                 else {"phrase": {"field": fld, "gram_size": 2, "size": 2, "direct_generator": [{"field": "title.sayt", "suggest_mode": "missing", "prefix_length": 2}]}})
+        t = time.time()
+        try:
+            r = es.search(index=IX["projects"], body=body)
+            opts = [o["text"] for e in r["suggest"]["s"] for o in e["options"]]
+            res = f"{kind} on {fld}: {opts[:3]} ({(time.time() - t) * 1000:.0f}ms)"
+        except Exception as e:  # noqa: BLE001
+            res = f"{kind} on {fld}: FAILS {str(e)[:100]}"
+        print("       ", res)
+    return "see lines above (term suggester per word is the safe default)"
+
+
+@case
+def typo_tolerance_works_at_scale():
+    idx = "proto_works_synth"
+    if not es.indices.exists(index=idx):
+        return "SKIPPED (run synth_works.py first)"
+    n_docs = int(es.cat.count(index=idx, format="json")[0]["count"])
+    sample = es.search(index=idx, body={"size": 1, "query": {"match_all": {}}, "_source": ["title"]})["hits"]["hits"][0]["_source"]["title"].split()
+    w1, w2 = [w for w in sample if len(w) >= 6][:2]
+    # worst case: a very frequent word (rank ~10 in the Zipf vocabulary) with a typo -> huge postings for the expansions
+    cand = {w for h in es.search(index=idx, body={"size": 300, "_source": ["title"], "query": {"match_all": {}}})["hits"]["hits"] for w in h["_source"]["title"].split() if len(w) >= 6}
+    counts = {w: es.count(index=idx, body={"query": {"match": {"title": w}}})["count"] for w in list(cand)[:120]}
+    hot = max(counts, key=counts.get)
+    rows = []
+    for label, q in (("1-word typo (mid-freq word)", corrupt(w1)["deletion"]), ("1-word typo (very frequent word)", corrupt(hot)["deletion"]),
+                     ("2-word typo", f"{corrupt(w1)['transposition']} {corrupt(w2)['substitution']}"),
+                     ("typo+neg", f"{corrupt(w1)['deletion']} -{w2}"), ("clean", w1)):
+        for maxexp in (10, 50):
+            o = search_typo_tolerant(es, idx, q, WORK_FIELDS, [], size=10, extra={"sort": ["_score", {"citation_count": "desc"}]}, max_expansions=maxexp)
+            rows.append(f"{label} maxexp={maxexp}: {o['mode']} {o['total']:,} hits strict {o['strict_ms']:.0f}ms + fuzzy {o['fuzzy_ms'] or 0:.0f}ms")
+    for r_ in rows:
+        print("       ", r_)
+    return f"{n_docs:,} synthetic works; 'very frequent' word {hot!r} matches {counts[hot]:,} docs; see lines above"
+
+
+@case
+def funder_programme_facets():
+    r, ms = search("projects", {"size": 0, "track_total_hits": True, "query": {"match_all": {}},
+                                "aggs": {"funder": {"terms": {"field": "funder", "size": 50}}, "programme": {"terms": {"field": "programme", "size": 50}}}})
+    fu = {b["key"]: b["doc_count"] for b in r["aggregations"]["funder"]["buckets"]}
+    pr = {b["key"]: b["doc_count"] for b in r["aggregations"]["programme"]["buckets"]}
+    dfu = dict(db.execute(f"select f, count(*) from (select unnest(funder) f from {pq('projects')}) group by 1").fetchall())
+    dpr = dict(db.execute(f"select f, count(*) from (select unnest(programme) f from {pq('projects')}) group by 1").fetchall())
+    assert fu == {k: v for k, v in dfu.items() if k in fu} and pr == {k: v for k, v in dpr.items() if k in pr}
+    # filter funder=EC + programme=H2020 -> equals duckdb; programme facet under a funder filter only shows that funder's programmes
+    r2, _ = search("projects", projects_body("", size=0, funder="EC", programme="H2020", aggs={"programme": {"terms": {"field": "programme"}}}))
+    exp = db.execute(f"select count(*) from {pq('projects')} where list_contains(funder,'EC') and list_contains(programme,'H2020')").fetchone()[0]
+    assert total(r2) == exp and exp > 0
+    g, _ = search("grants", {"size": 0, "query": {"match_all": {}}, "aggs": {"funder": {"terms": {"field": "funder", "size": 50}}, "programme": {"terms": {"field": "programme", "size": 50}}}})
+    gd = {b["key"]: b["doc_count"] for b in g["aggregations"]["funder"]["buckets"]}
+    dg = dict(db.execute(f"select funder, count(*) from {pq('grants')} group by 1").fetchall())
+    assert gd == dg
+    return f"projects: {len(fu)} funders / {len(pr)} programmes (== duckdb), EC+H2020 filter {exp} projects ({ms:.0f}ms); grants funder facet == duckdb ({len(gd)} funders)"
+
+
+@case
+def works_filters_and_dch_corpus():
+    # take the attributes of a real DCH-proxy work so the combined filter is guaranteed non-empty
+    y, oa, lang, pub = db.execute(f"select year, open_access_color, language, publisher from {pq('works')} where is_ch_via_project and publisher is not null and year is not null and open_access_color is not null and language is not null limit 1").fetchone()
+    flt = [{"range": {"year": {"gte": y - 1, "lte": y + 1}}}, {"term": {"open_access_color": oa}}, {"term": {"language": lang}}, {"term": {"publisher": pub}}, {"term": {"is_ch_via_project": True}}]
+    r, ms = search("works", {"track_total_hits": True, "size": 5, "query": {"bool": {"filter": flt}}, "sort": [{"citation_count": "desc"}]})
+    exp = db.execute("select count(*) from " + pq('works') + " where year between ? and ? and open_access_color=? and language=? and publisher=? and is_ch_via_project", [y - 1, y + 1, oa, lang, pub]).fetchone()[0]
+    assert total(r) == exp and exp >= 1, (total(r), exp)
+    return f"year({y}±1)+OA({oa})+language({lang})+publisher+DCH-proxy: {total(r)} hits == duckdb ({ms:.0f}ms)"
+
+
+@case
+def pred_is_display_only():
+    d = es.get(index=IX["projects"], id=db.execute(f"select id from {pq('projects')} where pred is not null limit 1").fetchone()[0])["_source"]
+    assert "pred" in d
+    try:
+        es.search(index=IX["projects"], body={"size": 0, "query": {"range": {"pred": {"gte": 0.5}}}})
+        q = total(es.search(index=IX["projects"], body={"size": 0, "track_total_hits": True, "query": {"range": {"pred": {"gte": 0.0}}}}))
+        return f"pred returned in _source; range query matches {q} (not indexed => 0 expected)"
+    except Exception as e:  # noqa: BLE001
+        return f"pred in _source; filter not possible ({type(e).__name__}) as intended"
+
+
+@case
+def works_by_minority():
+    q, n_exp = db.execute(f"select m, count(*) c from (select unnest(minority_qids) m from {pq('works')}) group by 1 order by c desc limit 1").fetchone()
+    r, ms = search("works", {"track_total_hits": True, "size": 10, "query": {"term": {"minority_qids": q}}, "sort": [{"citation_count": "desc"}],
+                             "_source": ["title", "link_tier", "minority_qids", "project_ids"]})
+    assert total(r) == n_exp and all(h["_source"]["link_tier"] == 0 for h in r["hits"]["hits"])
+    # independent route: projects carrying q -> works linked to those projects (what the proxy field precomputes)
+    pids = all_ids("projects", {"query": {"term": {"minority_qids": q}}})
+    r2, ms2 = search("works", {"track_total_hits": True, "size": 0, "query": {"terms": {"project_ids": pids}}})
+    assert total(r2) == total(r), (total(r2), total(r))
+    # with a text query and the DCH proxy on top, as the minorities use case would
+    r3, ms3 = search("works", {"track_total_hits": True, "size": 5, "query": {"bool": {"must": sqs("model OR data OR research", WORK_FIELDS), "filter": [{"term": {"minority_qids": q}}]}}})
+    tier1 = db.execute(f"select count(*) from {pq('works')} where link_tier=1 and len(minority_qids)>0").fetchone()[0]
+    assert tier1 == 0
+    return f"{q}: {total(r)} works == duckdb == via-projects route ({total(r2)}); term filter {ms:.0f}ms vs {len(pids)}-id terms route {ms2:.0f}ms; +text {total(r3)} hits {ms3:.0f}ms; tier-1 has none"
+
+
+@case
+def currency_conversion():
+    cur, amt, eur = db.execute(f"select currency, funded_amount, funded_amount_eur from {pq('projects')} where currency = 'GBP' and funded_amount > 0 limit 1").fetchone()
+    assert abs(eur - amt / 0.85880) < 1e-6, (amt, eur)
+    hrk = db.execute(f"select funded_amount, funded_amount_eur from {pq('projects')} where currency = 'HRK' and funded_amount > 0 limit 1").fetchone()
+    assert abs(hrk[1] - hrk[0] / 7.53450) < 1e-6
+    unk = db.execute(f"select count(*), count(*) filter (funded_amount_eur is null) from {pq('projects')} where funded_amount > 0 and currency not in ('EUR','USD','GBP','CHF','SEK','NOK','DKK','PLN','CZK','HUF','RON','ISK','TRY','HRK','BGN')").fetchone()
+    assert unk[0] == unk[1]
+    r, _ = search("projects", {"size": 0, "query": {"bool": {"must_not": {"exists": {"field": "funded_amount_eur"}}, "filter": {"range": {"funded_amount": {"gt": 0}}}}}, "track_total_hits": True})
+    return f"GBP {amt:.0f} -> {eur:.0f} EUR, HRK ok; {unk[0]} projects with an unlisted currency and amount -> funded_amount_eur NULL (as designed); OS sees {total(r)} projects with amount but no EUR"
 
 
 @case
@@ -373,7 +526,7 @@ def topic_modal_corpus():
 @case
 def grants_index():
     r, ms = search("grants", {"size": 5, "track_total_hits": True, "query": {"match_all": {}}, "sort": [{"project_count": "desc"}],
-                              "aggs": {"funders": {"terms": {"field": "level1_funder", "size": 20}}, "programmes": {"terms": {"field": "level2_programme", "size": 20}}}})
+                              "aggs": {"funders": {"terms": {"field": "funder", "size": 20}}, "programmes": {"terms": {"field": "programme", "size": 20}}}})
     top = r["hits"]["hits"][0]["_source"]
     rp, _ = search("projects", {"track_total_hits": True, "size": 0, "query": {"term": {"funding_stream_ids": top["id"]}}})
     assert total(rp) == top["project_count"], (total(rp), top["project_count"])

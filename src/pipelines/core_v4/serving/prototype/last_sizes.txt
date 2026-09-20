@@ -1,0 +1,7 @@
+index                      docs    store B    B/doc
+proto_grants                121     139087     1149   segments=1
+proto_minorities            299     227796      762   segments=1
+proto_organisations        1000    2270561     2271   segments=1
+proto_projects             1000    4019151     4019   segments=1
+proto_works                1000    1071709     1072   segments=1
+proto_works_synth        500000  193421245      387   segments=1

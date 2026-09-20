@@ -18,6 +18,21 @@ def client(host: str, port: int) -> OpenSearch:
     return OpenSearch(hosts=[{"host": host, "port": port}], http_compress=True, timeout=120, max_retries=3, retry_on_timeout=True)
 
 
+def store_bytes(es, index: str) -> int:
+    """Primary store size after flush; polls until two consecutive readings agree (a single read right after forcemerge can be off)."""
+    import time as _t
+    es.indices.flush(index=index, force=True)
+    es.indices.refresh(index=index)
+    prev = -1
+    for _ in range(20):
+        _t.sleep(1)
+        cur = int(es.indices.stats(index=index, metric="store")["indices"][index]["primaries"]["store"]["size_in_bytes"])
+        if cur == prev and cur > 0:
+            return cur
+        prev = cur
+    return prev
+
+
 def actions(path: Path, index: str, batch_rows: int):
     for batch in pq.ParquetFile(path).iter_batches(batch_size=batch_rows):
         for doc in batch.to_pylist():

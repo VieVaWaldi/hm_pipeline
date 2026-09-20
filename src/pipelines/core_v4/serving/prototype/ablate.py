@@ -8,14 +8,14 @@ from pathlib import Path
 import pyarrow.parquet as pq
 from opensearchpy.helpers import bulk
 
-from load import client
+from load import client, store_bytes
 from mappings import INDICES, settings
 
 name = sys.argv[1]
 PARQ = Path("../../../../../data/serving_proto")
 DROPS = {
     "works": ["id", "authors", "organisation_ids", "project_ids", "title", "pdf_url,landing_url", "publisher,container_name", "doi"],
-    "projects": ["id", "summary", "org_names", "org_ids", "fundings", "title", "keywords,subjects", "funder_names,funder_short,funding_stream_ids"],
+    "projects": ["id", "summary", "org_names", "org_ids", "fundings", "title", "keywords,subjects", "funder_names,funder,programme,funding_stream_ids"],
     "organisations": ["rorLocations,rorRelationships", "pids", "alternativeNames", "address_street,address_postalcode,address_city"],
 }[name]
 es = client("localhost", 9201)
@@ -33,7 +33,7 @@ def size(drop: list[str]) -> int:
     bulk(es, ({"_index": idx, "_id": d["id"], "_source": {k: v for k, v in d.items() if k not in drop}} for d in docs))
     es.indices.refresh(index=idx)
     es.indices.forcemerge(index=idx, max_num_segments=1)
-    b = int(es.cat.indices(index=idx, format="json", bytes="b", h="pri.store.size")[0]["pri.store.size"])
+    b = store_bytes(es, idx)
     es.indices.delete(index=idx)
     return b
 

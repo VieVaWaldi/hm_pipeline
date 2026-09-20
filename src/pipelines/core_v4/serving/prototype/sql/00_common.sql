@@ -1,11 +1,14 @@
 -- Shared temp tables, built once per export run. Read-only source DB, everything here is TEMP.
--- Placeholders (D13/D14): EUR conversion table and equal-split funding attribution. NOT final decisions.
+-- D13 (decided): equal split of the project amount over its organizations. D14 (decided): ECB table below, see SERVING_DESIGN.md 3b.
 
--- PLACEHOLDER (D14): fixed rates, only to make the pipeline testable. Unknown currency -> NULL (not summed).
+-- D14 (decided): ECB euro reference rates of 2026-09-18, units of currency per 1 EUR (SERVING_DESIGN.md section 3b).
+-- HRK (fixed 7.53450) and BGN (fixed 1.95583) are not in the ECB list; the design doc says to verify these two and spot-check 2-3 rates
+-- before the real export. Currency not in this table -> funded_amount_eur NULL (never guess).
 CREATE TEMP TABLE fx AS
-SELECT * FROM (VALUES ('EUR', 1.0), ('GBP', 1.15), ('USD', 0.92), ('HRK', 0.133), ('CHF', 1.05), ('SEK', 0.09),
-                      ('DKK', 0.134), ('NOK', 0.085), ('PLN', 0.23), ('CZK', 0.04), ('HUF', 0.0025), ('RON', 0.2))
-       AS t(currency, eur_per_unit);
+SELECT * FROM (VALUES ('EUR', 1.0), ('USD', 1.1460), ('GBP', 0.85880), ('CHF', 0.9462), ('SEK', 11.2915), ('NOK', 10.8095),
+                      ('DKK', 7.4754), ('PLN', 4.3635), ('CZK', 24.339), ('HUF', 364.28), ('RON', 5.2647), ('ISK', 139.40),
+                      ('TRY', 55.9077), ('HRK', 7.53450), ('BGN', 1.95583))
+       AS t(currency, units_per_eur);
 
 -- project -> organization, one row per pair; coordinator flag from the Cordis type (known for ~7% of relations only).
 CREATE TEMP TABLE po AS
@@ -31,9 +34,9 @@ CREATE TEMP TABLE p_works AS
 SELECT source AS pid, count(*)::INTEGER AS work_count
 FROM relation WHERE sourceType = 'project' AND targetType = 'product' GROUP BY source;
 
--- per-project money: raw, EUR (placeholder rates) and the equal share per participating organization (placeholder D13)
+-- per-project money: raw, EUR (ECB table, D14) and the equal share per participating organization (D13, decided)
 CREATE TEMP TABLE p_money AS
 SELECT p.id AS pid, p.granted.currency AS currency, p.granted.fundedAmount AS funded_amount,
-       p.granted.fundedAmount * fx.eur_per_unit AS funded_amount_eur,
-       (p.granted.fundedAmount * fx.eur_per_unit) / nullif(po.org_count, 0) AS funded_eur_per_org
+       p.granted.fundedAmount / fx.units_per_eur AS funded_amount_eur,
+       (p.granted.fundedAmount / fx.units_per_eur) / nullif(po.org_count, 0) AS funded_eur_per_org
 FROM project p LEFT JOIN fx ON fx.currency = p.granted.currency LEFT JOIN p_orgs po ON po.pid = p.id;

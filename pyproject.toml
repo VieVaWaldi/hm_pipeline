@@ -66,3 +66,10 @@ explicit = true
 dev = [
     "pytest>=9.1.1",
 ]
+# Light install for the OpenSearch serving step (export loader + tests) on a laptop / the VM, no torch/CUDA:
+#   uv sync --frozen --only-group serving
+serving = [
+    "duckdb",
+    "opensearch-py",
+    "pyarrow>=25.0.1",
+]

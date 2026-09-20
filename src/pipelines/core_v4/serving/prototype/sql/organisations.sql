@@ -3,7 +3,7 @@ COPY (
 WITH pc AS (
     SELECT po.oid, count(*)::INTEGER AS project_count,
            count(*) FILTER (p.is_ch)::INTEGER AS dch_project_count,
-           sum(m.funded_eur_per_org) AS total_funding_eur          -- PLACEHOLDER attribution (D13) + rates (D14)
+           sum(m.funded_eur_per_org) AS total_funding_eur          -- D13 equal split (decided); EUR via ECB table (D14)
     FROM po JOIN project p ON p.id = po.pid LEFT JOIN p_money m ON m.pid = po.pid
     GROUP BY po.oid
 ), wc AS (

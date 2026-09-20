@@ -1,0 +1,45 @@
+test words: 'european', 'europe'; top org: ('5452680138708796687', 'Helmholtz Association of German Research Centres', 188, 162)
+PASS  rewrite_unit                             1 ms  9 rewrites ok
+PASS  query_syntax_semantics                 976 ms  a=483 b=435 and=434 or=484 neg=49; wildcard off; garbage ok; query_string raises RequestError on 'a AND (' (why we use simple_query_string)
+PASS  projects_search_facets                 377 ms  441 hits, 50 topics exact vs duckdb, 18ms; budget-sort+DCH 47 hits 37ms
+PASS  project_overview_by_id                  21 ms  all overview fields present (45 fields, 4181 bytes _source)
+PASS  project_to_works_tab                    15 ms  project 16548932839180666646: 5 works == work_count, 11ms
+PASS  org_to_works_tab                        17 ms  org 7649459455343105576: 286 works == work_count, 12ms
+PASS  org_to_projects_tab                     11 ms  188 projects == project_count, 11ms
+PASS  works_search_and_pdf                    19 ms  'innovative': 1 hits 12ms; 1/1 rows with pdf_url; exists(pdf_url)=0 (index:false => 0 expected)
+PASS  works_dch_proxy                          9 ms  46 DCH-proxy works (tier 0 only, tier-1 = 0) == duckdb, 7ms
+PASS  typo_tolerance_projects                192 ms  deletion:'eurpean' 0->162 (3+63ms) dym=['european', 'europeans'] | transposition:'euorpean' 0->162 (6+24ms) dym=['european', 'europeans'] | substitution:'eurxpean' 0->162 (3+15ms) dym=['european', 'europeans'] | insertion:'euroopean' 0->162 (3+12ms) dym=['european', 'europeans'] | 2-word typo -> 435
+PASS  typo_tolerance_organisations            12 ms  'Helholtz Association' -> fuzzy 2 hits incl. 'Helmholtz Association of German Research Centres' (2+10ms) did-you-mean=['helmholtz']
+        term on title.sayt: ['european', 'europeans', 'europe'] (3ms)
+        phrase on title.sayt._2gram: FAILS TransportError(500, 'search_phase_execution_exception', 'At least one unigram is required but all to
+PASS  did_you_mean_phrase_suggester            7 ms  see lines above (term suggester per word is the safe default)
+        1-word typo (mid-freq word) maxexp=10: fuzzy 644 hits strict 2ms + fuzzy 18ms
+        1-word typo (mid-freq word) maxexp=50: fuzzy 839 hits strict 4ms + fuzzy 11ms
+        1-word typo (very frequent word) maxexp=10: fuzzy 30,234 hits strict 5ms + fuzzy 42ms
+        1-word typo (very frequent word) maxexp=50: fuzzy 30,234 hits strict 5ms + fuzzy 12ms
+        2-word typo maxexp=10: fuzzy 1 hits strict 6ms + fuzzy 18ms
+        2-word typo maxexp=50: fuzzy 1 hits strict 11ms + fuzzy 25ms
+        typo+neg maxexp=10: fuzzy 643 hits strict 11ms + fuzzy 16ms
+        typo+neg maxexp=50: fuzzy 838 hits strict 8ms + fuzzy 47ms
+        clean maxexp=10: strict 487 hits strict 10ms + fuzzy 0ms
+        clean maxexp=50: strict 487 hits strict 10ms + fuzzy 0ms
+PASS  typo_tolerance_works_at_scale          827 ms  500,000 synthetic works; 'very frequent' word 'rolumi' matches 30,177 docs; see lines above
+PASS  funder_programme_facets                 30 ms  projects: 11 funders / 50 programmes (== duckdb), EC+H2020 filter 347 projects (9ms); grants funder facet == duckdb (9 funders)
+PASS  works_filters_and_dch_corpus            10 ms  year(2023±1)+OA(hybrid)+language(eng)+publisher+DCH-proxy: 4 hits == duckdb (6ms)
+PASS  pred_is_display_only                     5 ms  pred in _source; filter not possible (RequestError) as intended
+PASS  works_by_minority                       65 ms  Q125564: 99 works == duckdb == via-projects route (99); term filter 6ms vs 141-id terms route 8ms; +text 15 hits 5ms; tier-1 has none
+PASS  currency_conversion                      7 ms  GBP 202349 -> 235618 EUR, HRK ok; 0 projects with an unlisted currency and amount -> funded_amount_eur NULL (as designed); OS sees 3 projects with amount but no EUR
+PASS  org_autocomplete                        14 ms  prefix 'Helm' -> top-3 ['Helmholtz Association of German Research Centres', 'Helmholtz Zentrum München', 'Karlsruhe Institute of Technology'] (4ms); acronym 'Helmholtz Association of German Research Centres' ok
+PASS  project_autocomplete                     4 ms  'EUF' -> 2 suggestions 3ms
+PASS  experts                                203 ms  483 projects -> 200 orgs, agg 11ms + mget 58ms; scripted max(_score) ordering works (6ms)
+PASS  org_network                            128 ms  433 partners, 421 with geo, agg 6ms + mget 117ms, payload 62454 B; lazy pair query 4ms
+PASS  query_network                          147 ms  483 projects -> 33886 distinct pairs, capped to 1000 edges / 186 nodes, payload 28820 B, 146ms total (search 97ms)
+PASS  funding_map                            191 ms  500 orgs, 483 columns w/ geo, 8ms (all-projects agg 8ms), payload 43191 B; agg sum == rollup == duckdb
+PASS  minorities_text_and_institution         19 ms  title word 'modelling': blob finds Q7325 (4 hits, 4ms), two-step finds it (15 minorities, 4ms); institution 'Plymouth University': blob finds=False, two-step finds=True
+PASS  minorities_facets_and_map               39 ms  facets 5ms; map: 290 (minority,org) pairs -> 210 with geo, 33ms, payload 16852 B
+PASS  topic_modal_corpus                      15 ms  SCI 625 topics 9ms, DCH 61 topics 3ms; DCH counts == duckdb; field rollup == agg; e.g. ['Archaeology and Cultural Heritage', 'Cultural Heritage Management and Preservation', 'Cultural and Communication Design Research']
+PASS  grants_index                             9 ms  121 grants, top EC::H2020::RIA = 180 projects == projects filter; funders ['EC', 'UKRI', 'NWO', 'NIH']
+PASS  organisations_filters_ranking            5 ms  45 orgs (region+type+geo), sort funding>projects>works 5ms
+PASS  deep_pagination_limit                    2 ms  from+size > 10000 rejected (index.max_result_window=10000): UI must cap at page ~1000 or use search_after
+
+30/30 passed

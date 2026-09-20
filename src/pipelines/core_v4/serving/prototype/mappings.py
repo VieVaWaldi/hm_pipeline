@@ -52,12 +52,13 @@ PROJECTS = {
         "fundings": OBJ_OFF, "frameworkProgrammes": KW,
         "currency": KW, "funded_amount": DBL, "total_cost": {**DBL, "index": False},
         "funded_amount_eur": DBL, "funded_eur_per_org": DBL,
-        "is_translated": BOOL, "is_ch": BOOL, "pred": {"type": "float"},
+        "is_translated": BOOL, "is_ch": BOOL,
+        "pred": {"type": "float", "index": False, "doc_values": False},  # D8: display-only, no filter/agg/sort
         "minority_qids": KW, "pillars": {"type": "byte"}, "pillar_list": KW, "theme": KW,
         "topic_id": KW, "subfield_id": KW, "field_id": KW, "domain_id": KW,
         "org_ids": KW, "org_names": {"type": "text", "analyzer": "hm_name", "norms": False},  # positions kept: phrase search on institution names
         "org_regions": KW, "org_countries": KW, "coordinator_id": KW, "org_count": INT, "work_count": INT,
-        "funder_short": KW, "funder_names": KW, "funding_stream_ids": KW,
+        "funder": KW, "programme": KW, "funder_names": KW, "funding_stream_ids": KW,   # D17 facets
     },
 }
 
@@ -91,6 +92,7 @@ WORKS = {
         "pdf_url": KW_STORED, "landing_url": KW_STORED,
         "project_ids": KW, "organisation_ids": KW, "link_tier": {"type": "byte"},
         "is_ch_via_project": BOOL,  # proxy (D4): any linked project is_ch; never a classification of the work itself
+        "minority_qids": KW,        # proxy (D4b): union over linked projects, tier 0 only
     },
 }
 
@@ -116,9 +118,9 @@ MINORITIES = {
 GRANTS = {
     "dynamic": "strict",
     "properties": {
-        "id": KW, "level1_funder": KW, "level2_programme": KW, "level3_action": KW,
+        "id": KW, "funder": KW, "programme": KW, "action": KW,   # D17: same two facets as projects
         "description": {**TEXT, "fields": {"sayt": SAYT}},
-        "funder_short": KW, "funder_name": {**NAME, "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
+        "funder_name": {**NAME, "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
         "jurisdiction": KW, "project_count": INT, "dch_project_count": INT, "total_funded_eur": DBL,
     },
 }

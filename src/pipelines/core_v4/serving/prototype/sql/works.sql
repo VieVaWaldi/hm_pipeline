@@ -1,11 +1,13 @@
 -- works index docs (trimmed): no abstract, no influence/views/subjects/instances/formats/sources.
 -- The links live here (many side): project_ids / organisation_ids as VARCHAR[].
--- pdf_url rule: first .pdf url among OPEN instances, else first .pdf url of any instance, else NULL.
--- landing_url rule: https://doi.org/<doi>, else first url of any instance.
+-- pdf_url rule (decided): open-access .pdf, else any .pdf, else NULL.
+-- landing_url rule (decided): https://doi.org/<doi>, else first OPEN url, else first url of any instance.
 COPY (
 WITH wp AS (
     -- is_ch_via_project: PROXY (D4), true if ANY linked project is is_ch. NOT a classification of the work; tier-1 works are false.
-    SELECT r.target AS wid, list(r.source::VARCHAR ORDER BY r.source) AS project_ids, coalesce(bool_or(p.is_ch), false) AS is_ch_via_project
+    SELECT r.target AS wid, list(r.source::VARCHAR ORDER BY r.source) AS project_ids, coalesce(bool_or(p.is_ch), false) AS is_ch_via_project,
+           -- D4b: PROXY, union of minority_qid over all linked projects (empty for tier 1)
+           list_sort(list_distinct(flatten(list(coalesce(p.minority_qid, []))))) AS minority_qids
     FROM relation r JOIN project p ON p.id = r.source
     WHERE r.sourceType = 'project' AND r.targetType = 'product' GROUP BY r.target
 ), wo AS (
@@ -27,8 +29,8 @@ SELECT w.id::VARCHAR AS id, w.title,
        w.citationCount::INTEGER AS citation_count, w.doi_v AS doi,
        coalesce(list_filter(w.open_urls, lambda u: regexp_matches(lower(split_part(u, '?', 1)), '\.pdf$'))[1],
                 list_filter(w.all_urls,  lambda u: regexp_matches(lower(split_part(u, '?', 1)), '\.pdf$'))[1]) AS pdf_url,
-       coalesce('https://doi.org/' || w.doi_v, w.all_urls[1]) AS landing_url,
+       coalesce('https://doi.org/' || w.doi_v, w.open_urls[1], w.all_urls[1]) AS landing_url,
        coalesce(wp.project_ids, [])::VARCHAR[] AS project_ids, coalesce(wo.organisation_ids, [])::VARCHAR[] AS organisation_ids,
-       coalesce(wp.is_ch_via_project, false) AS is_ch_via_project, w.link_tier
+       coalesce(wp.is_ch_via_project, false) AS is_ch_via_project, coalesce(wp.minority_qids, [])::VARCHAR[] AS minority_qids, w.link_tier
 FROM w LEFT JOIN wp ON wp.wid = w.id LEFT JOIN wo ON wo.wid = w.id
 ) TO '__OUT__/works.parquet' (FORMAT parquet, COMPRESSION zstd);

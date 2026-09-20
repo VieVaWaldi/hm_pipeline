@@ -2,14 +2,14 @@
 import json
 import sys
 
-from load import client
+from load import client, store_bytes
 from mappings import PREFIX
 
 es = client("localhost", 9201)
-rows = es.cat.indices(index=PREFIX + "*", format="json", bytes="b", h="index,docs.count,pri.store.size,segments.count")
+rows = es.cat.indices(index=PREFIX + "*", format="json", bytes="b", h="index,docs.count,segments.count")
 print(f"{'index':22s} {'docs':>8s} {'store B':>10s} {'B/doc':>8s}")
 for r in sorted(rows, key=lambda r: r["index"]):
-    n, b = int(r["docs.count"]), int(r["pri.store.size"])
+    n, b = int(r["docs.count"]), store_bytes(es, r["index"])
     print(f"{r['index']:22s} {n:8d} {b:10d} {b / n:8.0f}   segments={r['segments.count']}")
 if len(sys.argv) > 1:
     for name in sys.argv[1:]:

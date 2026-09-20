@@ -173,7 +173,8 @@
         "type": "keyword"
       },
       "org_ids": {
-        "type": "keyword"
+        "type": "keyword",
+        "eager_global_ordinals": true
       },
       "org_names": {
         "type": "text",

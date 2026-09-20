@@ -78,7 +78,7 @@ def projects(title_shingle: int = TITLE_SHINGLE) -> dict:
             "pred": {"type": "float", "index": False, "doc_values": False},   # D8/D31: display-only, no filter/agg/sort
             "minority_qids": KW, "pillars": {"type": "byte"}, "pillar_list": KW, "theme": KW,
             "topic_id": KW, "subfield_id": KW, "field_id": KW, "domain_id": KW,      # nullable (D29)
-            "org_ids": KW,
+            "org_ids": {**KW, "eager_global_ordinals": True},   # aggregated by experts / org network / funding map: build the global ordinals at refresh, not on the first query
             "org_names": {"type": "text", "analyzer": "hm_name", "norms": False},     # positions kept: phrase search on institution names
             "org_regions": KW, "org_countries": KW, "coordinator_ids": KW,           # D30
             "org_count": INT, "work_count": INT,

@@ -184,13 +184,20 @@ def topic_modal_aggs() -> dict:
             "f": {"terms": {"field": "field_id", "size": 100}}, "d": {"terms": {"field": "domain_id", "size": 10}}}
 
 
+def terms_agg(field: str, size: int, shard_size: int | None = None, **kw) -> dict:
+    """terms agg for facets/networks with an EXPLICIT shard_size. With 2+ shards (projects: 2, works: 4) the default shard_size (size*1.5+10) makes the
+    counts approximate: measured on the real-data sample, 5 of 50 topic counts were 1-2 too low; shard_size 500 made them exact (error bound 0).
+    The extra shard work is tiny (a few hundred buckets per shard). Use this helper for every facet / experts / network / funding aggregation."""
+    return {"terms": {"field": field, "size": size, "shard_size": shard_size or max(size * 10, 500), **kw}}
+
+
 # ---- experts / networks / funding (aggregations over projects) -------------------------------------------------------
 def experts_aggs(size: int = 200) -> dict:
-    return {"orgs": {"terms": {"field": "org_ids", "size": size, "order": {"_count": "desc"}}}}
+    return {"orgs": terms_agg("org_ids", size, order={"_count": "desc"})}
 
 
 def org_network_body(org_id: str, size: int = 500) -> dict:
-    return {"size": 0, "query": {"term": {"org_ids": org_id}}, "aggs": {"partners": {"terms": {"field": "org_ids", "size": size + 1}}}}
+    return {"size": 0, "query": {"term": {"org_ids": org_id}}, "aggs": {"partners": terms_agg("org_ids", size + 1)}}
 
 
 def query_network_body(q: str, max_projects: int = 2000, **filters) -> dict:
@@ -203,7 +210,7 @@ def query_network_body(q: str, max_projects: int = 2000, **filters) -> dict:
 
 def funding_aggs(size: int = 500) -> dict:
     """Funding map: per-org sum of the equal-split EUR share over the projects that match the query + filters (D10/D13)."""
-    return {"orgs": {"terms": {"field": "org_ids", "size": size, "order": {"funding": "desc"}},
+    return {"orgs": {**terms_agg("org_ids", size, shard_size=max(size * 4, 2000), order={"funding": "desc"}),
                      "aggs": {"funding": {"sum": {"field": "funded_eur_per_org"}}}}}
 
 

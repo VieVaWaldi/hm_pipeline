@@ -233,13 +233,36 @@ worst, x250 for works, divided by the shard count); the first query after a rest
 7. Verified on the real slice/derived data: 35,975 works with `is_ch_via_project`, 922,801 works without project, 8,795 projects without topic, 81,043 with a coordinator, 103 funders, 6,503 projects with a minority (9,293 stored minus the D32 deny-list),
    157,268 orgs in region `Unknown`, 367,699 with rorTypes `unknown`, grants 6,074 + 46 pseudo: all equal to the cluster analysis.
 
+### 6.3b Full-scale measurements on the laptop (2026-09-21, real cleaned export) and the laptop sample
+A full local build was started and then stopped by decision (the Mac's RAM is shared; Docker Desktop has only 8 GB and the heritagemonitor containers already use ~3.4 GB, so the 9201 node ran with a **2 GB heap**).
+What was measured before it was stopped (details and commands in `LOCAL_LOAD_REPORT.md`):
+| Index | real result | vs estimate |
+|---|---|---|
+| organisations (all 494,099, forcemerged) | **1.29 GB** primary store (2.6 KB/doc), 11.9k docs/s, forcemerge 38 s | estimate 0.6-0.75 GB was **too low** (~1.8x); still tiny |
+| projects (partial: 1.17M of 3.89M docs, not forcemerged, 2 shards) | 2.6 GB (2.2 KB/doc) -> ~8.6 GB unmerged at 3.9M | estimate 6.9 GB; treat 7-9 GB as the range |
+| works | not loaded at full scale | 20-26 GB estimate stands (sample: 498 B/doc) |
+Loading is throttled by segment merging ("segment writing can't keep up") at ~9.5k docs/s for projects with a 2 GB heap.
+**Laptop test data = a coherent sample** (`export/build_sample.py`, output `data/serving_export_sample/`, git-ignored): 25,797 projects (5.6k DCH, 5.0k minority-tagged, all 2,123 projects of one collaborative anchor org,
+one 797-works project), 28,137 organisations (every org referenced by a sampled project), 28,653 works (tier-0 works of sampled projects, DCH/minority first, + anchor-org works + 5.8k tier-1), all 278 minorities, all 6,119 grants.
+Links are filtered to the sample (no dangling ids), denormalised counts keep their FULL values. Latencies on it are NOT representative; it is for correctness. `export/vm_smoke.py` runs the full-scale checks on the VM.
+
+### 6.3c Findings from the sample run (fixed unless noted)
+1. **Facet counts are approximate with 2+ shards unless `shard_size` is set** (projects 2 shards, works 4): with the default (`size*1.5+10`) 4-5 of 50 topic counts were 1-2 too low
+   (error bound 2-6); with `shard_size` 500 all exact, bound 0. Fixed: `queries.terms_agg()` (shard_size = max(10*size, 500)) is used for every facet / experts / org-network / funding aggregation. The api must use it too.
+2. **`eager_global_ordinals: true` on `projects.org_ids`** (aggregated by experts / networks / funding): identical results before/after (correctness verified); the speed effect only shows at scale. Now in `mappings.py`
+   (+ `mappings/projects.json`); measure on the VM: restart, then `vm_smoke.py --runs 1 --only "experts,org network,funding"`.
+3. `minorities.project_title_blob` holds only the top 200 projects (by `pred`) per group: for the big groups (Russians 2,242, Turkish 1,676, Jewish 1,344) most project titles are NOT searchable through the blob; use the two-step route (projects query -> terms agg on minority_qids) for text/institution search (already the plan).
+4. **Open, export SQL**: `works.language` keeps non-ISO source junk after `hm_lang` (0.13% of works: `sr (latin script)`, `sr (cyrillic script)`, `lv-lv`, `el_gr`, `inglese`, `ng`, ...). Harmless for search; normalise to `^[a-z]{3}$` or NULL at the next export rerun (needs a cluster rerun, ~9 min).
+5. Works linked to a minority project outside a sample keep `minority_qids` but lose that `project_ids` entry: only a sample artefact.
+
 ### 6.6 Deviations from the earlier text of this document
 `coordinator_ids[]` (not `coordinator_id`); grants get one pseudo stream per funder instead of one global bucket (`NONE::<funder>`, also present in `projects.funding_stream_ids`);
 `total_cost` is not exported; works get `org_count`; organisations get `rank_*` fields (rank_feature) next to the plain counts used for sorting; `publishers.json` and `topics.json` are written by the export;
 codec per index (6.5.1); text cleaning also strips HTML tags from summaries and unescapes the `fundings` object.
 
 ## 7. Open questions
-- Cluster export runtime/memory on the real 132 GB file (not measured; run `export.sbatch` with `--works-sample 1000` first, then full).
+- Cluster export runtime/memory: measured, run 2 (cleaned) took 8:51 with 40 GB peak (run 1: 3:42), see `agent_job/EXPORT_RESULTS.md`.
+- Full-scale latencies (works typo fallback, biggest-org aggs, funding agg on 3.9M projects, first-query global ordinals): only measurable on the VM with `export/vm_smoke.py`.
 - Works typo-fallback and first-query latency on the HDD VM (6.4 caveat); works shard count 4 and heap size are hypotheses until measured on the VM.
 - Collaboration pair index (D11): still no; revisit only if the live aggs on the VM are too slow.
 - D19 duplicate organisations: `name_key` is a v1 mitigation; a real merge (canonical id) is post-deadline. D32 minorities ship as stored minus a small deny-list of obviously wrong pairs (user decision 2026-09-20, `agent_job/MINORITY_EXCLUSIONS.md`), all 278 groups kept.

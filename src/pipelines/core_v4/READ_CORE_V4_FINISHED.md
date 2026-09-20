@@ -1,9 +1,12 @@
 # core_v4_noworkenrichment.duckdb: the finished core_v4 database (report of 2026-09-20)
 
-**This is the file we use for serving (OpenSearch).** One DuckDB file with every entity and every relation:
-50M works, 3.89M projects, 494k organizations, topics, the minority table. **Projects and organizations are fully
-enriched. Works are deliberately NOT enriched** (decision of 2026-09-20: the deadline is the OpenSearch serve; work
-enrichment is expensive and not needed for it).
+**This is the file we use for serving (OpenSearch).** 
+
+One DuckDB file with every entity and every relation:
+50M works, 3.89M projects, 494k organizations, topics, the minority table. 
+
+**Projects and organizations are fully enriched. Works are deliberately NOT enriched** 
+(decision of 2026-09-20: the deadline is the OpenSearch serve; work enrichment is expensive and not needed for it).
 
 ```
 /work/lu72hip/data/duckdb/core/core_v4_noworkenrichment.duckdb      132.6 GB, written 2026-09-20 16:46
@@ -46,7 +49,9 @@ pids STRUCT[], rorStatus, rorEstablished INT, rorTypes VARCHAR[], rorLocations J
 geolocation_source, rorRelationships JSON, address_street, address_postalcode, address_city, address_country, nuts3, region`.
 
 **topic**: `id INT, subfield_id, field_id, domain_id, topic_name, subfield_name, field_name, domain_name, keywords, summary,
-wikipedia_url, created_at, updated_at`. **relation_topic**: `type, source_id UBIGINT, topic_id INT, score FLOAT, created_at`.
+wikipedia_url, created_at, updated_at`. 
+
+**relation_topic**: `type, source_id UBIGINT, topic_id INT, score FLOAT, created_at`.
 
 **minority**: `qid, merged_qids VARCHAR[], group_name_en, countries VARCHAR[], source_class VARCHAR[], population DOUBLE, religions,
 native_languages, part_of, subclass_of, diaspora, ancestral_home, admin_territory, has_parts (all VARCHAR[]), known_subgroups

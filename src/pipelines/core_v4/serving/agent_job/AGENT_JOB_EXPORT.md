@@ -14,6 +14,14 @@ run the job, watch it, verify the output, and finish with a clear list of next s
   (`export.py`, `export.sbatch`, `sql/`). Everything runs with the light environment: `uv run --frozen --only-group serving ...` (duckdb only, no torch/CUDA).
   If `uv` tries to resolve/download torch, stop and report (the `serving` group must have been synced with git).
 
+## Rerun after the D27 text-cleaning fix (2026-09-21)
+The first export left HTML in the text (`&amp;` in 1.77M `container_name` values, 9k titles, markup like `<sub>3</sub>`, MathML). The SQL now runs the improved `hm_clean`
+everywhere (works title/publisher/container_name/authors, projects, organisations, minorities, grants, `api/publishers.json`). **The whole export must be rerun**: works, projects,
+organisations, minorities, grants and `api/publishers.json` all change (about 4 minutes). Existing files are skipped by the runner, so use a **fresh output directory**
+(`--out /vast/lu72hip/hm_pipeline/data/serving_export_v2`) or pass `--force`; do not mix old and new files. Sync git first (`export/sql/00_macros.sql`, `works.sql`, `projects.sql`,
+`organisations.sql`, `minorities.sql`, `publishers.sql`, `export/verify_clean.py`). The verification table below has new rows for it. Optional cross-check on the cluster:
+`uv run --frozen --only-group serving python src/pipelines/core_v4/serving/export/verify_clean.py` (read-only, ~3 min, writes `agent_job/CLEAN_VERIFY.md`).
+
 ## Steps
 ### 1. Preflight (login node, seconds)
 - `git log --oneline -3` and `git status --short` (report them); confirm `export/export.py`, `export/export.sbatch`, `export/sql/` exist and `pyproject.toml` has the `serving` dependency group.
@@ -49,6 +57,9 @@ Expected (from the cluster analysis; the row counts must match exactly, the othe
 | projects with a non-empty `minority_qids` | **6,503** (9,293 stored minus the deny-list; `export_manifest.json` -> `minority_source`: mode `exclude`, `excluded_pairs` 2,878, `projects_with_minority` 6,503, `project_group_tags` 6,650, `groups_emptied` = 9 groups) |
 | `minorities/*.parquet` groups with `project_count` 0 | 191 (182 never had a project + 9 emptied by the deny-list); the file still has all 278 rows |
 | works with `pdf_url` / `landing_url` | about 13.4% / 99.65% |
+| **text cleaning (D27, rerun 2)** rows containing `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&nbsp;` or any `&[a-zA-Z#0-9]{2,}` entity in `works.title`, `works.publisher`, `works.container_name`, `projects.title`, `projects.summary` | **0** for `&amp;` / `&lt;` / `&gt;` / `&quot;`; other entity-like residue must be a handful of plain-text look-alikes (`R&D;`, `&955;`), report the top 20 |
+| residual `<tag` (regex `<[a-zA-Z/]`) in `works.title`, `projects.title`, `projects.summary` | report the counts; expected only unknown pseudo-tags (`<Background >`, `<Objectives>`) and plain comparisons (`p<z`), **no** `<sub>`, `<i>`, `<mi>`, `<p>`, `<br>` |
+| `api/publishers.json` publisher values | every value also occurs in `works.publisher` (built from the cleaned values); no value contains `&amp;` |
 Also check: no NULL or duplicate `id` in any file set; ids are strings (VARCHAR); `organisation_ids` never longer than 100; `api/topics.json` and `api/publishers.json` exist and are valid JSON
 (about 4,516 topics; publishers list about 3,000); total size of `data/serving_export` (`du -sh`, per subfolder) versus the expectation
 (works about 8 GB, projects about 0.75 GB, organisations about 60 MB, minorities and grants under 1 MB). List every file with its size and row count.

@@ -26,6 +26,8 @@ CREATE OR REPLACE TEMP MACRO hm_cur(cur, funders) AS
 -- LAST in each pass; (2) strip a WHITELIST of real tags: inline tags -> '' (`CO<sub>2</sub>` -> `CO2`), block tags -> ' ' (`a<br>b` -> `a b`);
 -- unknown `<...>` and plain comparisons (`p < 0.05 and x > 3`) stay untouched; (3) collapse whitespace, empty -> NULL. Idempotent on clean text.
 -- The regexes only run on values that contain `&` / `<` (cheap on the 50M works).
+-- MathML (`<mi>`, `<mo>`, `<math>`, prefixed `<a:mi>`, `<inline-formula>`, `<tex-math>` ...) is 250k+ of the real titles: inline tags too.
+-- Unknown pseudo-tags like the structured-abstract markers `<Background >` / `<Objectives>` (~600 project summaries) stay on purpose.
 -- Limits (deliberate): a whitelisted tag name directly after `<` followed by `>` (or by `attr=...>`) is a tag, e.g. `a<b>c` loses `<b>`; numeric
 -- entities are decoded generically (control characters and invalid code points are dropped), named entities cover the HTML 4 set + `&apos;`.
 CREATE OR REPLACE TEMP MACRO hm_cp(n) AS
@@ -65,30 +67,47 @@ CREATE OR REPLACE TEMP MACRO hm_ent(e) AS
   '&sube;': '⊆', '&sum;': '∑', '&sup;': '⊃', '&sup1;': '¹', '&sup2;': '²', '&sup3;': '³', '&supe;': '⊇', '&szlig;': 'ß', '&tau;': 'τ', '&there4;': '∴',
   '&theta;': 'θ', '&thetasym;': 'ϑ', '&thinsp;': ' ', '&thorn;': 'þ', '&tilde;': '˜', '&times;': '×', '&trade;': '™', '&uArr;': '⇑', '&uacute;': 'ú',
   '&uarr;': '↑', '&ucirc;': 'û', '&ugrave;': 'ù', '&uml;': '¨', '&upsih;': 'ϒ', '&upsilon;': 'υ', '&uuml;': 'ü', '&weierp;': '℘', '&xi;': 'ξ',
-  '&yacute;': 'ý', '&yen;': '¥', '&yuml;': 'ÿ', '&zeta;': 'ζ', '&zwj;': '', '&zwnj;': '', '&apos;': ''''
+  '&yacute;': 'ý', '&yen;': '¥', '&yuml;': 'ÿ', '&zeta;': 'ζ', '&zwj;': '', '&zwnj;': '', '&apos;': '''', '&Abreve;': 'Ă', '&Amacr;': 'Ā',
+  '&Aogon;': 'Ą', '&Cacute;': 'Ć', '&Ccaron;': 'Č', '&Ccirc;': 'Ĉ', '&Cdot;': 'Ċ', '&Dcaron;': 'Ď', '&Dstrok;': 'Đ', '&ENG;': 'Ŋ', '&Ecaron;': 'Ě',
+  '&Edot;': 'Ė', '&Emacr;': 'Ē', '&Eogon;': 'Ę', '&Gbreve;': 'Ğ', '&Gcedil;': 'Ģ', '&Gcirc;': 'Ĝ', '&Gdot;': 'Ġ', '&Hcirc;': 'Ĥ', '&Hstrok;': 'Ħ',
+  '&IJlig;': 'Ĳ', '&Idot;': 'İ', '&Imacr;': 'Ī', '&Iogon;': 'Į', '&Itilde;': 'Ĩ', '&Jcirc;': 'Ĵ', '&Kcedil;': 'Ķ', '&Lacute;': 'Ĺ', '&Lcaron;': 'Ľ',
+  '&Lcedil;': 'Ļ', '&Lmidot;': 'Ŀ', '&Lstrok;': 'Ł', '&Nacute;': 'Ń', '&Ncaron;': 'Ň', '&Ncedil;': 'Ņ', '&Odblac;': 'Ő', '&Omacr;': 'Ō',
+  '&Racute;': 'Ŕ', '&Rcaron;': 'Ř', '&Rcedil;': 'Ŗ', '&Sacute;': 'Ś', '&Scedil;': 'Ş', '&Scirc;': 'Ŝ', '&Tcaron;': 'Ť', '&Tcedil;': 'Ţ',
+  '&Tstrok;': 'Ŧ', '&Ubreve;': 'Ŭ', '&Udblac;': 'Ű', '&Umacr;': 'Ū', '&Uogon;': 'Ų', '&Uring;': 'Ů', '&Utilde;': 'Ũ', '&Wcirc;': 'Ŵ', '&Ycirc;': 'Ŷ',
+  '&Zacute;': 'Ź', '&Zcaron;': 'Ž', '&Zdot;': 'Ż', '&abreve;': 'ă', '&amacr;': 'ā', '&aogon;': 'ą', '&cacute;': 'ć', '&ccaron;': 'č', '&ccirc;': 'ĉ',
+  '&cdot;': 'ċ', '&dcaron;': 'ď', '&dstrok;': 'đ', '&ecaron;': 'ě', '&edot;': 'ė', '&emacr;': 'ē', '&eng;': 'ŋ', '&eogon;': 'ę', '&gbreve;': 'ğ',
+  '&gcirc;': 'ĝ', '&gdot;': 'ġ', '&hcirc;': 'ĥ', '&hstrok;': 'ħ', '&ijlig;': 'ĳ', '&imacr;': 'ī', '&imath;': 'ı', '&inodot;': 'ı', '&iogon;': 'į',
+  '&itilde;': 'ĩ', '&jcirc;': 'ĵ', '&kcedil;': 'ķ', '&kgreen;': 'ĸ', '&lacute;': 'ĺ', '&lcaron;': 'ľ', '&lcedil;': 'ļ', '&lmidot;': 'ŀ',
+  '&lstrok;': 'ł', '&nacute;': 'ń', '&napos;': 'ŉ', '&ncaron;': 'ň', '&ncedil;': 'ņ', '&odblac;': 'ő', '&omacr;': 'ō', '&racute;': 'ŕ',
+  '&rcaron;': 'ř', '&rcedil;': 'ŗ', '&sacute;': 'ś', '&scedil;': 'ş', '&scirc;': 'ŝ', '&tcaron;': 'ť', '&tcedil;': 'ţ', '&tstrok;': 'ŧ',
+  '&ubreve;': 'ŭ', '&udblac;': 'ű', '&umacr;': 'ū', '&uogon;': 'ų', '&uring;': 'ů', '&utilde;': 'ũ', '&wcirc;': 'ŵ', '&ycirc;': 'ŷ', '&zacute;': 'ź',
+  '&zcaron;': 'ž', '&zdot;': 'ż'
        }[e], e) END;
 
+-- Macro arguments are referenced ONCE (wrapped in `list_transform([s], lambda x: ...)[1]`): a macro that mentions its argument several times makes
+-- nested calls explode exponentially at bind time (3 nested passes x 3 references = 27 copies of the 250-entry entity map).
 -- one decode pass: all entities except &amp; first, then &amp; last
-CREATE OR REPLACE TEMP MACRO hm_dec1(s) AS
-  CASE WHEN s IS NULL OR NOT contains(s, '&') THEN s ELSE
+CREATE OR REPLACE TEMP MACRO hm_dec1(s) AS list_transform([s], lambda x:
+  CASE WHEN x IS NULL OR NOT contains(x, '&') THEN x ELSE
     replace(
-      list_reduce(list_filter(regexp_extract_all(s, '&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{1,9});'), lambda e: e <> '&amp;'),
-                  lambda acc, e: replace(acc, e, hm_ent(e)), s),
+      list_reduce(list_filter(regexp_extract_all(x, '&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{1,9});'), lambda e: e <> '&amp;'),
+                  lambda acc, e: replace(acc, e, hm_ent(e)), x),
       '&amp;', '&')
-  END;
+  END)[1];
+CREATE OR REPLACE TEMP MACRO hm_dec3(s) AS hm_dec1(hm_dec1(hm_dec1(s)));
 -- entity decode only (author names): 3 passes, whitespace collapsed, empty -> NULL
-CREATE OR REPLACE TEMP MACRO hm_dec(s) AS nullif(trim(regexp_replace(hm_dec1(hm_dec1(hm_dec1(s))), '\s+', ' ', 'g')), '');
+CREATE OR REPLACE TEMP MACRO hm_dec(s) AS nullif(trim(regexp_replace(hm_dec3(s), '\s+', ' ', 'g')), '');
 
-CREATE OR REPLACE TEMP MACRO hm_strip(s) AS
-  CASE WHEN s IS NULL OR NOT contains(s, '<') THEN s ELSE
+CREATE OR REPLACE TEMP MACRO hm_strip(s) AS list_transform([s], lambda x:
+  CASE WHEN x IS NULL OR NOT contains(x, '<') THEN x ELSE
     regexp_replace(
-      regexp_replace(s,
-        '(?i)</?(?:sub|sup|i|b|em|strong|u|small|span|a|italic|bold|sc|scp|inf|tt|ital|roman|underline|overline|font|mml:[a-z0-9]+|jats:[a-z0-9-]+)(?:\s+[a-zA-Z:_-]+\s*=[^<>]*)?\s*/?>', '', 'g'),
-      '(?i)</?(?:p|br|div|li|ul|ol|h[1-6]|tr|td|th|table|tbody|thead|blockquote|pre|hr|section|abstract|body)(?:\s+[a-zA-Z:_-]+\s*=[^<>]*)?\s*/?>', ' ', 'g')
-  END;
+      regexp_replace(x,
+        '(?i)</?(?:sub|sup|i|b|em|strong|u|small|span|a|italic|bold|sc|scp|inf|tt|ital|roman|underline|overline|font|math|mi|mo|mn|mrow|msup|msub|msubsup|mover|munder|munderover|mtext|mfrac|msqrt|mroot|mstyle|mspace|mfenced|mpadded|mphantom|menclose|mmultiscripts|mprescripts|none|semantics|annotation|inline-formula|disp-formula|formula|tex-math|tex|[a-z]{1,5}:m[a-z]+|mml:[a-z0-9]+|jats:[a-z0-9-]+)(?:\s+[a-zA-Z:_-]+\s*=[^<>]*)?\s*/?>', '', 'g'),
+      '(?i)</?(?:p|br|div|li|ul|ol|h[1-6]|tr|td|th|table|tbody|thead|blockquote|pre|hr|section|abstract|body|title)(?:\s+[a-zA-Z:_-]+\s*=[^<>]*)?\s*/?>', ' ', 'g')
+  END)[1];
 
 -- full text cleaning: entities (3 passes) -> whitelisted tags -> whitespace, empty -> NULL
-CREATE OR REPLACE TEMP MACRO hm_clean(s) AS nullif(trim(regexp_replace(hm_strip(hm_dec1(hm_dec1(hm_dec1(s)))), '\s+', ' ', 'g')), '');
+CREATE OR REPLACE TEMP MACRO hm_clean(s) AS nullif(trim(regexp_replace(hm_strip(hm_dec3(s)), '\s+', ' ', 'g')), '');
 
 -- list of texts: clean every element, drop the ones that become empty
 CREATE OR REPLACE TEMP MACRO hm_clean_list(l) AS list_filter(list_transform(l, lambda x: hm_clean(x)), lambda x: x IS NOT NULL);

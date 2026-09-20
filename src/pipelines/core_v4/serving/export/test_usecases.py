@@ -634,6 +634,9 @@ def hm_clean_unit():
         ('<a href="http://x.org/?a=1&amp;b=2">link</a> t', "link t"),
         ('<mml:math xmlns:mml="x"><mml:mi>x</mml:mi></mml:math>y', "xy"),
         ("<jats:italic>Vibrio</jats:italic> sp.", "Vibrio sp."),
+        ("<inline-formula><tex-math notation=\"LaTeX\">x</tex-math></inline-formula> y <a:math><a:mi>z</a:mi></a:math>", "x y z"),
+        ("<math><mi>x</mi><mo>=</mo><msup><mi>y</mi><mn>2</mn></msup></math>", "x=y2"),          # MathML without prefix (250k real titles)
+        ("&Zcaron;ivkovi&cacute; <Background >text", "Živković <Background >text"),               # Latin Ext-A names; unknown pseudo-tag stays
         ("  a \t b\n c  ", "a b c"),
         ("  ", None), ("", None), (None, None), ("<br>", None),
     ]

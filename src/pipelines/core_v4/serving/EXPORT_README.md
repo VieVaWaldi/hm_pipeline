@@ -24,6 +24,9 @@ uv run --frozen --only-group serving python src/pipelines/core_v4/serving/export
 # full run as a slurm job (partition fat, 16 cpus, 150 GB, 6 h ceiling; edit paths inside if needed)
 sbatch src/pipelines/core_v4/serving/export/export.sbatch
 ```
+**Text cleaning (D27):** all text fields go through `hm_clean` (entities decoded in 3 passes, whitelisted HTML/MathML tags stripped, whitespace collapsed; see `export/sql/00_macros.sql`).
+If you change the macro or any `sql/*.sql`, **rerun the whole export with `--force` or into a fresh `--out`**: existing files are skipped, and works, projects, organisations, minorities, grants and
+`api/publishers.json` all depend on it. Check the result on the real data without the cluster: `export/verify_clean.py` (before/after counts on the dry-run Parquet, `agent_job/CLEAN_VERIFY.md`).
 Output (`data/serving_export/`): `organisations/`, `projects/`, `minorities/`, `grants/`, `works/works_00..09.parquet`, `api/topics.json`, `api/publishers.json`,
 `export_manifest.json` (rows, bytes, seconds per file). Files are written as `.tmp` and renamed, existing files are skipped, so a crashed/timed-out job just continues when
 resubmitted (delete a file to redo it; `--force` redoes all).

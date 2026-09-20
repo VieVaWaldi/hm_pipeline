@@ -180,6 +180,20 @@ def works_search_and_pdf():
 
 
 @case
+def works_dch_proxy():
+    r, ms = search("works", {"track_total_hits": True, "size": 5, "query": {"bool": {"filter": [{"term": {"is_ch_via_project": True}}]}}, "_source": ["title", "project_ids", "link_tier"]})
+    exp = db.execute(f"select count(*) from {pq('works')} where is_ch_via_project").fetchone()[0]
+    assert total(r) == exp and all(h["_source"]["link_tier"] == 0 for h in r["hits"]["hits"])
+    # cross-check against projects: every hit has >=1 linked project with is_ch
+    pids = {p for h in r["hits"]["hits"] for p in h["_source"]["project_ids"]}
+    ok = db.execute(f"select count(*) from {pq('projects')} where id in ({','.join(repr(p) for p in pids)}) and is_ch").fetchone()[0]
+    assert ok >= 1
+    t1 = db.execute(f"select count(*) from {pq('works')} where link_tier=1 and is_ch_via_project").fetchone()[0]
+    assert t1 == 0
+    return f"{total(r)} DCH-proxy works (tier 0 only, tier-1 = 0) == duckdb, {ms:.0f}ms"
+
+
+@case
 def org_autocomplete():
     name = TOP_ORG[1]
     tokens = name.split()

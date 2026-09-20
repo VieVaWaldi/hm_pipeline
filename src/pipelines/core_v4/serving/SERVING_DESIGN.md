@@ -6,7 +6,8 @@ Field-by-field mappings are the **final goal** of this file (section 6, still em
 
 ## 1. Locations and constraints
 - **Cluster (Draco)**: has the 132.6 GB DuckDB. Work only in `/vast/lu72hip/hm_pipeline`, never `/home`. Heavy work as slurm jobs.
-- **Mac (home)**: relay. ~10 GB upload from home; the final works index goes up from the university (~10x faster).
+- **Mac (home)**: relay. **50 Mbps upload** (~6 MB/s, ~20 GB/hour realistic). Everything except works goes up from home; works goes up from
+  the university network only if the trimmed works Parquet (no abstracts) turns out big (decide from the dry-run sizes in agent_job section M).
 - **VM "DIGICHerVM"**: 8 cores, 31 GB RAM, **HDD** (`rota=1`), 5 TB disk. Prod compose: OpenSearch heap 12g, container limit 24g
   (page cache is charged to the container, see `heritagemonitor/infra/PRODUCTION.md`). Old app: Postgres, all projects fine,
   10M works "slow but usable" -> 50M works will be slower, so the works doc must be as small as possible.
@@ -33,19 +34,21 @@ Field-by-field mappings are the **final goal** of this file (section 6, still em
 | D1 | Staged transfer/load (section 2) | decided |
 | D2 | **Links live on the "many" side.** `works` carry `project_ids[]` + `organisation_ids[]`; a project stores only `work_count`. A project's works tab = `works` filtered by `project_ids`. Ids are strings (UBIGINT > signed long). | decided |
 | D3 | Exactly 1 topic per project. Project stores `topic_id, subfield_id, field_id, domain_id` (keywords). Topic facet = `terms` agg on `topic_id` over the matched projects, ordered by count (exact). Names come from the api (4.5k topics held in api memory, ~1-2 MB), not from OpenSearch. Tree counts = same agg rolled up by subfield/field. Corpus-aware topic modal = the agg with the `is_ch` filter, cached per corpus (SCI/DCH) in the api. | decided |
-| D4 | **No abstracts in works** (v1). Works get no `is_ch`/`minority`/topic. `is_ch` is NOT copied from project to work (a project's work is not necessarily DCH). Corpus selector therefore does not filter works. | decided |
+| D4 | **No abstracts in works** (v1). Works get no topic/minority enrichment. **`is_ch` on works is a proxy**: a tier-0 work gets `is_ch_via_project = true` if ANY linked project has `is_ch` (tier-1 works: false, never in the DCH corpus). The name says it is a proxy; the UI/DTO must not present it as a classification of the work. DCH corpus on works = tier-0 works of DCH projects. | decided (reverses the first draft) |
 | D5 | Works are trimmed hard (section 4). Keep a `pdf_url` (+ `landing_url`) so the list row can send the user straight to the PDF. Extraction rule from `instances[].urls` needs prod analysis. | decided, rule OPEN |
-| D6 | Query syntax: `simple_query_string`, `default_operator: AND`, restricted `flags` (no PREFIX/FUZZY/SLOP/NEAR, i.e. no expensive wildcard/fuzzy), api rewrites literal `AND`/`OR`/`NOT` outside quotes to `+`/`|`/`-`. Never throws on bad syntax. Reason: `query_string` throws on unbalanced quotes/colons, allows `field:value` and leading wildcards (perf + abuse). | provisional, verify perf in prototype |
+| D6 | Query syntax: `simple_query_string`, `default_operator: AND`, restricted `flags` (no PREFIX/SLOP/NEAR, no user wildcards), api rewrites literal `AND`/`OR`/`NOT` outside quotes to `+`/`|`/`-`. Never throws on bad syntax. Reason: `query_string` throws on unbalanced quotes/colons, allows `field:value` and leading wildcards (perf + abuse). **Typo tolerance is required** but is NOT user syntax: strict query first, and if it returns few hits (< threshold) the api reruns a `match` with `fuzziness: AUTO`, `prefix_length: 2`, capped `max_expansions` (on works this fallback is the expensive path, measure it), plus a "did you mean" term/phrase suggester on titles/names. **Autocomplete** everywhere except works (D-list in section 5). | provisional, verify perf in prototype |
 | D7 | **Grants are derived, not a table.** Group `unnest(project.fundings)` by `fundingStream.id` (e.g. `EC::H2020::RIA` -> funder EC, programme H2020, action RIA). Small index `grants`. Per-grant-code entity dropped. | decided, size OPEN (prod) |
-| D8 | Projects/orgs/minorities: index **all** columns (incl. `is_translated`, `pred`, `openaireId`, `minority_qid`), the UI overview shows everything. `pred` lets the UI change the `is_ch` threshold live. | decided |
+| D8 | Projects/orgs/minorities: index **all** columns (incl. `is_translated`, `pred`, `openaireId`, `minority_qid`), the UI overview shows everything. **`pred` is display-only** (overview of a project): no filter, no slider, users never set it; only the pipeline owner changes the `is_ch` threshold, at export time. | decided |
 | D9 | No index for experts. Experts = query `projects`, `terms` agg on `org_ids`, fetch org docs, rank with org rollups. Works are not part of experts. | decided |
 | D10 | Funding map = aggregation over the **projects matching the query + all project filters**: per org `sum(funded amount share)`, top-N orgs, then `mget` org geo. List shows the same orgs. | decided |
 | D11 | Collaboration: **edge index is OPEN**. Default: org network from a `terms` agg on `projects.org_ids`; query network builds edges in the api from top-N projects with a hard cap (`max_edges`). Payload shape is compact: `nodes[{id,name,lat,lng,w}]`, `edges[{a,b,w}]` (indices into nodes, project ids fetched lazily on click). An edge index (org-pair docs) cannot serve query/filter-aware networks and would be tens of millions of docs on an HDD box. Revisit only if the prototype shows it is too slow. | OPEN |
 | D12 | Country-centroid fallback for orgs without geolocation: dropped (60k project-connected orgs with geo, mostly the higher-budget projects, is enough). | decided |
-| D13 | Org funding: sum over the org's projects. **Attribution rule OPEN**: (a) full project amount to every participant (over-counts), (b) `amount / org_count` (proposed), (c) Cordis contribution where known (only 392k relations). Whatever is chosen is precomputed once and used by org rollup and the funding agg alike. | OPEN |
+| D13 | Org funding: sum over the org's projects with an **equal split**: each participant gets `funded_amount_eur / org_count` (`funded_eur_per_org` on the project). Precomputed once, used by the org rollup and the funding agg alike. | decided |
 | D14 | Currency: `granted.currency` is mixed (EUR, GBP, USD, HRK, ...). Proposal: fixed conversion table applied at export, store `funded_amount` (raw), `currency`, `funded_amount_eur` (approximate, labelled so in the UI). Rates are a static table with a stated date (no live rates). | OPEN |
 | D15 | Coordinators: only 392k of 5.5M project->org rows carry `cordis_type` (`coordinator`, `participant`, ...). Store `coordinator_id` on projects where known, plus `org_ids` ordered coordinator first. UI must not promise a coordinator for every project. | decided |
 | D16 | Dev env: no CUDA on Mac/VM. | decided |
+| D17 | Projects carry **funder** and **programme** as two separate keyword facets (arrays, a project can have several fundings), derived from `fundings[].shortName`/`fundingStream.id` levels (funder = level 1, programme = level 2, e.g. `EC` / `H2020`); `frameworkProgrammes` stays as a raw field. `grants` has the same two facets. | decided, exact split rule from agent_job section A |
+| D18 | Works filters: year, OA colour, language, publisher. Not `isInDiamondJournal`. No facets on works (a publisher filter needs a value picker, see UI). | decided |
 
 ## 4. Index topology (top level)
 | Index | Docs | Purpose |
@@ -74,7 +77,8 @@ ranked by `project_count`. Default ranking: `total_funding_eur`, `project_count`
 ### works (trimmed)
 Keep: `id`, `title`, `authors` (first ~20 names + `author_count`), `publication_date`/`year`, `publisher`, `container_name`,
 `open_access_color`, `best_access_right`, `language`, `citation_count`, `doi`, `pdf_url`, `landing_url` (both `index: false`),
-`project_ids[]`, `organisation_ids[]`, `link_tier`.
+`project_ids[]`, `organisation_ids[]`, `link_tier`, `is_ch_via_project` (D4, proxy).
+`pdf_url` rule (decided order): open-access `.pdf` url, else any `.pdf` url, else NULL; `landing_url`: `https://doi.org/<doi>`, else first OPEN url, else first url.
 Drop: descriptions/abstract, influence, views, subjects, instances (avg 12 per work in the mini DB!), formats, sources, other pids, container details.
 Ranking: BM25, `citation_count`. Filters: year, OA colour, language. No facets, no autocomplete.
 
@@ -89,7 +93,8 @@ Number of docs unknown until the prod analysis (mini DB: 121 distinct streams in
 
 ## 5. UI implications (per index, for heritagemonitor)
 - **Global**: ids are strings everywhere; routes use ids. Corpus selector SCI/DCH = `is_ch` filter on `projects`; on `organisations` via
-  `has_dch_project`; on `minorities` via a DCH project count; **no effect on works** (UI should say so or grey it out). Topic modal and
+  `has_dch_project`; on `minorities` via a DCH project count; on `works` via `is_ch_via_project` (proxy: only works of DCH projects; UI should
+  say "via linked project" and tier-1 works are never in DCH). Topic modal and
   its counts are corpus-aware (D3). Search box: D6 syntax, tell users about `"phrase"`, `-term`, `AND`.
 - **projects**: tabs = overview (every column; `openaireId` links to OpenAIRE, `doi` links out, `is_translated` shown as a badge, `pred` shown),
   organisations (coordinator first *if known*, else ordered by relation), works (`works` filtered by `project_ids`, paged). Clicking an
@@ -106,9 +111,10 @@ Number of docs unknown until the prod analysis (mini DB: 121 distinct streams in
 - **collaboration**: organisationNetwork autocomplete on organisations; map arcs from D11; queryNetwork needs a `max_edges` parameter in the UI.
 
 ## 6. Field-by-field mappings
-_TODO once the prototype and the prod analysis (`tmp_session/AGENT_JOB_RESULTS.md`) are in. One subsection per index: mapping JSON, settings,
+_TODO once the prototype (`prototype/`, `PROTOTYPE_REPORT.md`) and the prod analysis (`agent_job/AGENT_JOB_RESULTS.md`) are in. One subsection per index: mapping JSON, settings,
 export SQL, api query examples, facet tiers._
 
 ## 7. Open questions
-Currency (D14), org funding attribution (D13), collaboration edge index (D11), work `pdf_url` extraction rule (D5), grants count (D7),
-works shard count and bytes/doc (prototype), `simple_query_string` cost on works (D6).
+Currency conversion table (D14), collaboration edge index (D11), real `pdf_url` coverage (D5), grants count (D7), funder/programme split (D17),
+works shard count and bytes/doc (prototype), typo-tolerance cost on works (D6), publisher filter UI (distinct publisher count from section F),
+whether `minority_qids` should also be copied to tier-0 works like `is_ch` (not asked; cheap, same proxy caveat).

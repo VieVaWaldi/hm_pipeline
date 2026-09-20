@@ -4,8 +4,10 @@
 -- landing_url rule: https://doi.org/<doi>, else first url of any instance.
 COPY (
 WITH wp AS (
-    SELECT target AS wid, list(source::VARCHAR ORDER BY source) AS project_ids
-    FROM relation WHERE sourceType = 'project' AND targetType = 'product' GROUP BY target
+    -- is_ch_via_project: PROXY (D4), true if ANY linked project is is_ch. NOT a classification of the work; tier-1 works are false.
+    SELECT r.target AS wid, list(r.source::VARCHAR ORDER BY r.source) AS project_ids, coalesce(bool_or(p.is_ch), false) AS is_ch_via_project
+    FROM relation r JOIN project p ON p.id = r.source
+    WHERE r.sourceType = 'project' AND r.targetType = 'product' GROUP BY r.target
 ), wo AS (
     SELECT source AS wid, list(target::VARCHAR ORDER BY target) AS organisation_ids
     FROM relation WHERE sourceType = 'product' AND targetType = 'organization' GROUP BY source
@@ -27,6 +29,6 @@ SELECT w.id::VARCHAR AS id, w.title,
                 list_filter(w.all_urls,  lambda u: regexp_matches(lower(split_part(u, '?', 1)), '\.pdf$'))[1]) AS pdf_url,
        coalesce('https://doi.org/' || w.doi_v, w.all_urls[1]) AS landing_url,
        coalesce(wp.project_ids, [])::VARCHAR[] AS project_ids, coalesce(wo.organisation_ids, [])::VARCHAR[] AS organisation_ids,
-       w.link_tier
+       coalesce(wp.is_ch_via_project, false) AS is_ch_via_project, w.link_tier
 FROM w LEFT JOIN wp ON wp.wid = w.id LEFT JOIN wo ON wo.wid = w.id
 ) TO '__OUT__/works.parquet' (FORMAT parquet, COMPRESSION zstd);

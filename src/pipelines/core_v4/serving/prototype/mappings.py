@@ -90,6 +90,7 @@ WORKS = {
         "citation_count": INT, "doi": KW,
         "pdf_url": KW_STORED, "landing_url": KW_STORED,
         "project_ids": KW, "organisation_ids": KW, "link_tier": {"type": "byte"},
+        "is_ch_via_project": BOOL,  # proxy (D4): any linked project is_ch; never a classification of the work itself
     },
 }
 

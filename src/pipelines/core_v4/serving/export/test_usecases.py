@@ -730,6 +730,35 @@ def coordinators_and_topic_missing():
     return f"coordinator_ids present; topic_id nullable ({n_missing} projects without topic == exists-query), agg has a `missing` bucket option"
 
 
+@case
+def minorities_keep_all_278_groups():
+    """The minorities index always holds all 278 groups, also groups that end with 0 projects after --minority-exclude / --override (decision D32)."""
+    n_file = db.execute(f"select count(*) from {pq('minorities')}").fetchone()[0]
+    n_ix = es.count(index=IX["minorities"])["count"]
+    assert n_file == 278 and n_ix == 278, f"minorities: parquet {n_file}, index {n_ix} (expected 278)"
+    manifest = json.loads((P / "export_manifest.json").read_text())
+    src = manifest.get("minority_source", {})
+    emptied = src.get("groups_emptied", [])
+    zero = db.execute(f"select count(*) from {pq('minorities')} where project_count = 0").fetchone()[0]
+    assert zero >= len(emptied)
+    for q in emptied:   # a group that had projects before and has none now: doc present, rollups empty
+        d = es.get(index=IX["minorities"], id=q)["_source"]
+        assert d["project_count"] == 0 and d["work_count"] == 0 and d["org_count"] == 0 and d["dch_project_count"] == 0, d
+        assert not d.get("topic_ids") and not d.get("topic_counts") and not d.get("project_title_blob"), f"{q}: rollups not empty"
+        r, _ = search("projects", {"size": 0, "track_total_hits": True, "query": {"term": {"minority_qids": q}}})
+        assert total(r) == 0, f"{q}: {total(r)} projects still carry it"
+        r, _ = search("works", {"size": 0, "track_total_hits": True, "query": {"term": {"minority_qids": q}}})
+        assert total(r) == 0, f"{q}: {total(r)} works still carry it"
+    # the exported tags agree with the manifest: projects with a minority == index count of exists(minority_qids)
+    r, _ = search("projects", {"size": 0, "track_total_hits": True, "query": {"exists": {"field": "minority_qids"}}})
+    assert total(r) == src.get("projects_with_minority", total(r)), (total(r), src)
+    # rollups add up: sum of project_count over minorities == number of (project, group) tags in the projects file
+    tags = db.execute(f"select coalesce(sum(len(minority_qids)), 0) from {pq('projects')}").fetchone()[0]
+    assert db.execute(f"select coalesce(sum(project_count), 0) from {pq('minorities')}").fetchone()[0] == tags
+    return (f"278 groups in file and index; mode={src.get('mode', 'stored')}; {len(emptied)} group(s) ended with 0 projects and are still there with empty rollups "
+            f"({emptied[:4]}); {zero} groups have no project; projects with a minority {total(r)}, tags {tags}")
+
+
 # ---- summary ---------------------------------------------------------------------------------------------------
 bad = [r for r in RESULTS if not r[1]]
 print(f"\n{len(RESULTS) - len(bad)}/{len(RESULTS)} passed")

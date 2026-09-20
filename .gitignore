@@ -2,6 +2,9 @@
 
 src/pipelines/core_v4/serving/agent_job/out/
 serving/agent_job/out/
+# serving exports are rsynced, never committed
+*.parquet
+.venv-serving/
 core_v2_geolocations.duckdb
 .mcp.json
 .vscode/

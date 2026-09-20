@@ -8,8 +8,8 @@ COPY (
 WITH wp AS (
     SELECT r.target AS wid, list(r.source::VARCHAR ORDER BY r.source) AS project_ids,
            bool_or(coalesce(p.is_ch, false)) AS is_ch_via_project,
-           list_sort(list_distinct(flatten(list(coalesce(p.minority_qid, []))))) AS minority_qids
-    FROM relation r JOIN project p ON p.id = r.source
+           list_sort(list_distinct(flatten(list(coalesce(pmq.minority_qid, []))))) AS minority_qids
+    FROM relation r JOIN project p ON p.id = r.source LEFT JOIN p_minority pmq ON pmq.pid = p.id
     WHERE r.sourceType = 'project' AND r.targetType = 'product' AND r.target % {N} = {K}
     GROUP BY r.target
 ), wo AS (

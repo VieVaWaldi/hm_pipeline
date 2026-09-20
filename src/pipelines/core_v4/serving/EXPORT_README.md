@@ -31,7 +31,25 @@ Expected sizes (from the dry run + slice): works ~8 GB (10 files), projects ~0.7
 the smoke run tells you (`export_manifest.json`).
 
 Check before downloading (numbers from the cluster analysis): works 50,000,000 rows, projects 3,893,065, organisations 494,099, minorities 278, grants 6,120;
-works with `is_ch_via_project` 35,975; projects with `coordinator_ids` 81,043; 103 distinct `funder` values.
+works with `is_ch_via_project` 35,975; projects with `coordinator_ids` 81,043; 103 distinct `funder` values; projects with a non-empty `minority_qids` **6,503** (manifest `minority_source`).
+
+### Minority tags: stored tags minus a small deny-list (`--minority-exclude`, part of the cluster run)
+Decision D32 (2026-09-20): the minority tags ship as stored in the database, **minus a conservative deny-list of obviously wrong (project, minority) pairs**; keyword-style hits
+(adjectives like "Russian", "Turkish") stay, and **all 278 groups stay in the `minorities` index** even if they end with 0 projects. The list is `export/minority_exclusions.csv`
+(2,878 pairs, committed, human-reviewable; columns project_id, minority_qid, group_name_en, rule, matched_text, title) and is already in `export.sbatch`:
+`--minority-exclude src/pipelines/core_v4/serving/export/minority_exclusions.csv`. Rules removed: R1 typo variants of multi-word keywords ("many people" -> "manx people"),
+R2 the word "same" for Sámi, R5 "Hebrew" only inside an institution name. Effect: 9,293 -> **6,503** projects with a minority, 9,528 -> 6,650 tags, 9 groups end with 0 projects
+(report with per-group before/after and examples: `agent_job/MINORITY_EXCLUSIONS.md`). Semantics: subtractive; a project not listed keeps its stored tags; a project that loses all
+tags gets an empty list; works/minorities rollups/project docs all use the reduced tags; the export aborts if the file is missing, or lists a project/pair that is not in this database.
+`export_manifest.json` -> `minority_source` records the mode, the counts and `groups_emptied`; no flag = the stored tags exactly as before.
+```bash
+.venv/bin/python src/pipelines/core_v4/serving/export/minority_override.py      # regenerates the CSV + report (profile obvious = default, ~15 s; main .venv: needs spaCy)
+MINORITY_EXCLUDE=src/pipelines/core_v4/serving/export/minority_exclusions.csv bash src/pipelines/core_v4/serving/export/run_all.sh   # laptop test on the mini DB
+```
+The CSV must be generated from the same database it is applied to (it was built from `agent_job/out/projects_full.parquet`, an export of the cluster file).
+
+Optional, NOT used: `--profile strict` + `--minority-override` (full replacement of the tags with the strictly corrected list, `agent_job/MINORITY_OVERRIDE.md`; Parquet, git-ignored,
+mutually exclusive with `--minority-exclude`).
 
 ## 2. Download and upload (order = load order)
 ```bash

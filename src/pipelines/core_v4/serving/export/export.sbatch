@@ -19,7 +19,9 @@ TMP=/vast/lu72hip/hm_pipeline/tmp_session/duck_tmp
 uv run --frozen --only-group serving python src/pipelines/core_v4/serving/export/export.py \
     --db "$DB" --out "$OUT" \
     --works-chunks 10 \
+    --minority-exclude src/pipelines/core_v4/serving/export/minority_exclusions.csv \
     --memory-limit 120GB --threads 16 --temp-dir "$TMP"
 
-# smoke variant first (a few minutes): add  --works-sample 1000 --out /vast/lu72hip/hm_pipeline/data/serving_export_smoke
+# --minority-exclude = the committed deny-list of obviously wrong (project, minority) pairs (decision D32); the export aborts if the file is missing or does not match the DB.
+# smoke variant first (a few minutes): add  --works-sample 1000 --out /vast/lu72hip/hm_pipeline/data/serving_export_smoke  (keep the --minority-exclude line)
 # then: du -sh "$OUT"/*  (expected: works ~8 GB in 10 files, projects ~0.75 GB, organisations ~60 MB, minorities/grants < 1 MB, api/*.json small)

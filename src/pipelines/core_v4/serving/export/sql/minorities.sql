@@ -2,8 +2,8 @@
 -- D32 (open): Manx / Russians / Turkish look like keyword false positives; ranking puts the seed groups first, groups without project last.
 COPY (
 WITH pm AS (
-    SELECT p.id AS pid, unnest(p.minority_qid) AS qid, hm_clean(p.title) AS title, p.acronym, p.pred, p.is_ch, pt.topic_id::VARCHAR AS topic_id
-    FROM project p LEFT JOIN p_topic pt ON pt.pid = p.id
+    SELECT p.id AS pid, unnest(pmq.minority_qid) AS qid, hm_clean(p.title) AS title, p.acronym, p.pred, p.is_ch, pt.topic_id::VARCHAR AS topic_id
+    FROM project p JOIN p_minority pmq ON pmq.pid = p.id LEFT JOIN p_topic pt ON pt.pid = p.id   -- p_minority: stored tags or the optional override
 ), agg AS (
     SELECT qid, count(*)::INTEGER AS project_count, (count(*) FILTER (is_ch))::INTEGER AS dch_project_count,
            -- whole blob is 0.75M chars in prod (largest group 187k): capped at 200 projects / 20k chars per group

@@ -11,7 +11,7 @@ SELECT
     p.frameworkProgrammes, hm_clean(p.summary) AS summary, p.doi,
     m.currency, m.funded_amount, m.funded_amount_eur, sh.funded_eur_per_org,       -- D13/D14/D21
     p.is_translated, p.is_ch, p.pred,                                              -- pred: display only (D8), is_ch is NOT pred > 0.55 (D31)
-    coalesce(p.minority_qid, [])::VARCHAR[] AS minority_qids, p.pillars::INTEGER AS pillars,
+    coalesce(pmq.minority_qid, [])::VARCHAR[] AS minority_qids, p.pillars::INTEGER AS pillars,
     list_filter(['inclusive', 'sustainable', 'resilient', 'innovative', 'global'], lambda x, i: ((p.pillars >> (i - 1)) & 1) = 1) AS pillar_list,
     p.theme,
     t.id::VARCHAR AS topic_id, t.subfield_id::VARCHAR AS subfield_id, t.field_id::VARCHAR AS field_id, t.domain_id::VARCHAR AS domain_id,   -- nullable (D29)
@@ -31,6 +31,7 @@ LEFT JOIN p_share sh ON sh.pid = p.id
 LEFT JOIN p_fund pf ON pf.pid = p.id
 LEFT JOIN p_streams fs ON fs.pid = p.id
 LEFT JOIN p_topic pt ON pt.pid = p.id
+LEFT JOIN p_minority pmq ON pmq.pid = p.id     -- stored project.minority_qid, or the optional override (export.py --minority-override)
 LEFT JOIN topic t ON t.id = pt.topic_id
 ORDER BY p.id
 ) TO '{OUT}/projects/projects.parquet.tmp' (FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE 50000);

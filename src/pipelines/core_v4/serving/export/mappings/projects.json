@@ -1,0 +1,212 @@
+{
+  "settings": {
+    "number_of_shards": 2,
+    "number_of_replicas": 0,
+    "refresh_interval": "30s",
+    "codec": "best_compression",
+    "merge.scheduler.max_thread_count": 1,
+    "translog.flush_threshold_size": "1gb",
+    "analysis": {
+      "filter": {
+        "en_stem": {
+          "type": "stemmer",
+          "language": "light_english"
+        }
+      },
+      "analyzer": {
+        "hm_text": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "en_stem"
+          ]
+        },
+        "hm_name": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding"
+          ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "id": {
+        "type": "keyword"
+      },
+      "openaireId": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "grantId": {
+        "type": "keyword"
+      },
+      "doi": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "title": {
+        "type": "text",
+        "analyzer": "hm_text",
+        "fields": {
+          "sayt": {
+            "type": "search_as_you_type",
+            "analyzer": "hm_name",
+            "max_shingle_size": 3
+          }
+        }
+      },
+      "acronym": {
+        "type": "text",
+        "analyzer": "hm_name",
+        "fields": {
+          "sayt": {
+            "type": "search_as_you_type",
+            "analyzer": "hm_name",
+            "max_shingle_size": 3
+          },
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 64
+          }
+        }
+      },
+      "summary": {
+        "type": "text",
+        "analyzer": "hm_text"
+      },
+      "keywords": {
+        "type": "text",
+        "analyzer": "hm_text"
+      },
+      "subjects": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "websiteUrl": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "callIdentifier": {
+        "type": "keyword"
+      },
+      "startDate": {
+        "type": "date"
+      },
+      "endDate": {
+        "type": "date",
+        "index": false
+      },
+      "year": {
+        "type": "integer"
+      },
+      "openAccessMandateForPublications": {
+        "type": "boolean",
+        "index": false
+      },
+      "openAccessMandateForDataset": {
+        "type": "boolean",
+        "index": false
+      },
+      "fundings": {
+        "type": "object",
+        "enabled": false
+      },
+      "frameworkProgrammes": {
+        "type": "keyword"
+      },
+      "currency": {
+        "type": "keyword"
+      },
+      "funded_amount": {
+        "type": "double"
+      },
+      "funded_amount_eur": {
+        "type": "double"
+      },
+      "funded_eur_per_org": {
+        "type": "double"
+      },
+      "is_translated": {
+        "type": "boolean"
+      },
+      "is_ch": {
+        "type": "boolean"
+      },
+      "pred": {
+        "type": "float",
+        "index": false,
+        "doc_values": false
+      },
+      "minority_qids": {
+        "type": "keyword"
+      },
+      "pillars": {
+        "type": "byte"
+      },
+      "pillar_list": {
+        "type": "keyword"
+      },
+      "theme": {
+        "type": "keyword"
+      },
+      "topic_id": {
+        "type": "keyword"
+      },
+      "subfield_id": {
+        "type": "keyword"
+      },
+      "field_id": {
+        "type": "keyword"
+      },
+      "domain_id": {
+        "type": "keyword"
+      },
+      "org_ids": {
+        "type": "keyword"
+      },
+      "org_names": {
+        "type": "text",
+        "analyzer": "hm_name",
+        "norms": false
+      },
+      "org_regions": {
+        "type": "keyword"
+      },
+      "org_countries": {
+        "type": "keyword"
+      },
+      "coordinator_ids": {
+        "type": "keyword"
+      },
+      "org_count": {
+        "type": "integer"
+      },
+      "work_count": {
+        "type": "integer"
+      },
+      "funder": {
+        "type": "keyword"
+      },
+      "programme": {
+        "type": "keyword"
+      },
+      "funder_names": {
+        "type": "keyword"
+      },
+      "funding_stream_ids": {
+        "type": "keyword"
+      }
+    }
+  }
+}

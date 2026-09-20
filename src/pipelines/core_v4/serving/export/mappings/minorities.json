@@ -1,0 +1,180 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "refresh_interval": "30s",
+    "codec": "best_compression",
+    "merge.scheduler.max_thread_count": 1,
+    "translog.flush_threshold_size": "1gb",
+    "analysis": {
+      "filter": {
+        "en_stem": {
+          "type": "stemmer",
+          "language": "light_english"
+        }
+      },
+      "analyzer": {
+        "hm_text": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "en_stem"
+          ]
+        },
+        "hm_name": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding"
+          ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "_source": {
+      "excludes": [
+        "project_title_blob"
+      ]
+    },
+    "properties": {
+      "qid": {
+        "type": "keyword"
+      },
+      "merged_qids": {
+        "type": "keyword"
+      },
+      "group_name_en": {
+        "type": "text",
+        "analyzer": "hm_name",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          },
+          "sayt": {
+            "type": "search_as_you_type",
+            "analyzer": "hm_name",
+            "max_shingle_size": 3
+          }
+        }
+      },
+      "countries": {
+        "type": "text",
+        "analyzer": "hm_name",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "source_class": {
+        "type": "keyword"
+      },
+      "population": {
+        "type": "double"
+      },
+      "religions": {
+        "type": "text",
+        "analyzer": "hm_name",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "native_languages": {
+        "type": "text",
+        "analyzer": "hm_name",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "subclass_of": {
+        "type": "text",
+        "analyzer": "hm_name",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "part_of": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "diaspora": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "has_parts": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "ancestral_home": {
+        "type": "keyword"
+      },
+      "admin_territory": {
+        "type": "keyword"
+      },
+      "known_subgroups": {
+        "type": "nested",
+        "properties": {
+          "name": {
+            "type": "text",
+            "analyzer": "hm_name"
+          },
+          "qid": {
+            "type": "keyword"
+          }
+        }
+      },
+      "search_keywords": {
+        "type": "text",
+        "analyzer": "hm_name"
+      },
+      "has_subgroups": {
+        "type": "boolean"
+      },
+      "is_seed": {
+        "type": "boolean"
+      },
+      "project_count": {
+        "type": "integer"
+      },
+      "dch_project_count": {
+        "type": "integer"
+      },
+      "org_count": {
+        "type": "integer"
+      },
+      "work_count": {
+        "type": "integer"
+      },
+      "topic_ids": {
+        "type": "keyword"
+      },
+      "topic_counts": {
+        "type": "object",
+        "enabled": false
+      },
+      "project_title_blob": {
+        "type": "text",
+        "analyzer": "hm_text"
+      }
+    }
+  }
+}

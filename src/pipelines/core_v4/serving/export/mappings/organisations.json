@@ -1,0 +1,179 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "refresh_interval": "30s",
+    "codec": "best_compression",
+    "merge.scheduler.max_thread_count": 1,
+    "translog.flush_threshold_size": "1gb",
+    "analysis": {
+      "filter": {
+        "en_stem": {
+          "type": "stemmer",
+          "language": "light_english"
+        }
+      },
+      "analyzer": {
+        "hm_text": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "en_stem"
+          ]
+        },
+        "hm_name": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding"
+          ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "id": {
+        "type": "keyword"
+      },
+      "openaireId": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "legalName": {
+        "type": "text",
+        "analyzer": "hm_name",
+        "fields": {
+          "sayt": {
+            "type": "search_as_you_type",
+            "analyzer": "hm_name",
+            "max_shingle_size": 3
+          }
+        }
+      },
+      "legalShortName": {
+        "type": "text",
+        "analyzer": "hm_name",
+        "fields": {
+          "sayt": {
+            "type": "search_as_you_type",
+            "analyzer": "hm_name",
+            "max_shingle_size": 3
+          }
+        }
+      },
+      "alternativeNames": {
+        "type": "text",
+        "analyzer": "hm_name",
+        "fields": {
+          "sayt": {
+            "type": "search_as_you_type",
+            "analyzer": "hm_name",
+            "max_shingle_size": 3
+          }
+        }
+      },
+      "websiteUrl": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "countryCode": {
+        "type": "keyword"
+      },
+      "rorId": {
+        "type": "keyword"
+      },
+      "wikiId": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "pids": {
+        "type": "object",
+        "enabled": false
+      },
+      "rorStatus": {
+        "type": "keyword"
+      },
+      "rorEstablished": {
+        "type": "integer",
+        "index": false
+      },
+      "rorTypes": {
+        "type": "keyword"
+      },
+      "rorLocations": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "rorRelationships": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "geo": {
+        "type": "geo_point"
+      },
+      "geolocation_source": {
+        "type": "keyword"
+      },
+      "address_street": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "address_postalcode": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "address_city": {
+        "type": "text",
+        "analyzer": "hm_name"
+      },
+      "address_country": {
+        "type": "keyword"
+      },
+      "nuts3": {
+        "type": "keyword"
+      },
+      "region": {
+        "type": "keyword"
+      },
+      "name_key": {
+        "type": "keyword"
+      },
+      "project_count": {
+        "type": "integer"
+      },
+      "work_count": {
+        "type": "integer"
+      },
+      "dch_project_count": {
+        "type": "integer"
+      },
+      "has_dch_project": {
+        "type": "boolean"
+      },
+      "total_funding_eur": {
+        "type": "double"
+      },
+      "rank_projects": {
+        "type": "rank_feature"
+      },
+      "rank_works": {
+        "type": "rank_feature"
+      },
+      "rank_funding": {
+        "type": "rank_feature"
+      }
+    }
+  }
+}

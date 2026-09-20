@@ -1,0 +1,120 @@
+{
+  "settings": {
+    "number_of_shards": 4,
+    "number_of_replicas": 0,
+    "refresh_interval": "30s",
+    "codec": "best_compression",
+    "merge.scheduler.max_thread_count": 1,
+    "translog.flush_threshold_size": "1gb",
+    "analysis": {
+      "filter": {
+        "en_stem": {
+          "type": "stemmer",
+          "language": "light_english"
+        }
+      },
+      "analyzer": {
+        "hm_text": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "en_stem"
+          ]
+        },
+        "hm_name": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding"
+          ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "id": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "title": {
+        "type": "text",
+        "analyzer": "hm_text"
+      },
+      "authors": {
+        "type": "text",
+        "analyzer": "hm_name",
+        "norms": false,
+        "index_options": "positions"
+      },
+      "author_count": {
+        "type": "integer",
+        "index": false
+      },
+      "publication_date": {
+        "type": "date",
+        "index": false
+      },
+      "year": {
+        "type": "integer"
+      },
+      "publisher": {
+        "type": "keyword"
+      },
+      "container_name": {
+        "type": "text",
+        "analyzer": "hm_name",
+        "norms": false
+      },
+      "open_access_color": {
+        "type": "keyword"
+      },
+      "best_access_right": {
+        "type": "keyword"
+      },
+      "language": {
+        "type": "keyword"
+      },
+      "citation_count": {
+        "type": "integer"
+      },
+      "doi": {
+        "type": "keyword"
+      },
+      "pdf_url": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "landing_url": {
+        "type": "keyword",
+        "index": false,
+        "doc_values": false
+      },
+      "project_ids": {
+        "type": "keyword"
+      },
+      "organisation_ids": {
+        "type": "keyword"
+      },
+      "org_count": {
+        "type": "integer",
+        "index": false
+      },
+      "link_tier": {
+        "type": "byte"
+      },
+      "is_ch_via_project": {
+        "type": "boolean"
+      },
+      "minority_qids": {
+        "type": "keyword"
+      }
+    }
+  }
+}

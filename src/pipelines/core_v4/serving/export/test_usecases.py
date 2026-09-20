@@ -611,17 +611,65 @@ def publishers_list():
 
 
 @case
-def no_html_entities_in_text():
-    for col in ("title", "summary"):
-        n = db.execute(f"select count(*) from {pq('projects')} where {col} like '%&amp;%' or regexp_matches({col}, '</?[a-zA-Z][^>]*>')").fetchone()[0]
-        assert n == 0, (col, n)
-    assert db.execute(f"select count(*) from {pq('organisations')} where legalName like '%&amp;%'").fetchone()[0] == 0
-    assert db.execute(f"select count(*) from {pq('grants')} where id like '%&amp;%'").fetchone()[0] == 0
+def hm_clean_unit():
+    """D27 macro cases (whitelisted tags only, entities decoded in 3 passes, &amp; last, idempotent, NULL for empty)."""
     con = duckdb.connect()
     con.execute((SQL_DIR / "00_macros.sql").read_text())
-    got = con.execute("select hm_clean('<p>R&amp;D &lt;3</p> x'), hm_clean('   '), hm_clean(NULL)").fetchone()
-    assert got == ("R&D <3 x", None, None), got
-    return "no &amp; / html tags in project title+summary, org names, grant ids; hm_clean unit ok"
+    cases = [
+        ("CO<sub>2</sub> emissions", "CO2 emissions"),                 # inline tag -> ''
+        ("H<sub>2</sub>O and x<sup>2</sup>", "H2O and x2"),
+        ("p < 0.05 and x > 3", "p < 0.05 and x > 3"),                   # plain comparison untouched
+        ("if x<5 and y>3", "if x<5 and y>3"),
+        ("R&amp;amp;D", "R&D"),                                          # double escaped
+        ("&amp;amp;#8220;Glaciers&amp;amp;#8221; by R. &amp; E.", "\u201cGlaciers\u201d by R. & E."),   # triple escaped (real title)
+        ("&amp;lt;3", "<3"), ("&lt;3", "<3"), ("&amp;lt;sub&amp;gt;3&amp;lt;/sub&amp;gt;", "3"),
+        ("a<br>b", "a b"), ("a<br/>b<BR>c", "a b c"), ("<p>Hello</p><p>World</p>", "Hello World"),   # block tag -> ' '
+        ("Fish &amp; Chips", "Fish & Chips"), ("Fish & Chips", "Fish & Chips"),
+        ("&quot;q&quot; &apos;s&apos; &#39;t&#39; &#x27;u&#x27;", "\"q\" 's' 't' 'u'"),
+        ("&eacute;t&eacute; &pound;5 &ndash; &#8211; &#8217;", "été £5 – – ’"),
+        ("a&nbsp;b&#160;c &#8232; d", "a b c d"),                        # nbsp / line separator -> space
+        ("x&#19;y&#0;z", "xyz"),                                         # control chars / NUL dropped
+        ("&unknownentity; stays", "&unknownentity; stays"),
+        ("<unknown>keep</unknown>", "<unknown>keep</unknown>"),
+        ('<a href="http://x.org/?a=1&amp;b=2">link</a> t', "link t"),
+        ('<mml:math xmlns:mml="x"><mml:mi>x</mml:mi></mml:math>y', "xy"),
+        ("<jats:italic>Vibrio</jats:italic> sp.", "Vibrio sp."),
+        ("  a \t b\n c  ", "a b c"),
+        ("  ", None), ("", None), (None, None), ("<br>", None),
+    ]
+    con.execute("create temp table hc(raw varchar, exp varchar)")
+    con.executemany("insert into hc values (?, ?)", cases)
+    rows = con.execute("select raw, exp, hm_clean(raw) got, hm_clean(hm_clean(raw)) got2 from hc").fetchall()
+    for raw, exp, got, got2 in rows:
+        assert got == exp, (raw, got, exp)
+        assert got2 == got, ("not idempotent", raw, got, got2)
+    assert con.execute("select hm_dec('Smith &amp; Sons, M&uuml;ller &lt;b&gt;x')").fetchone()[0] == "Smith & Sons, Müller <b>x"   # authors: entities only, no tag strip
+    assert con.execute("select hm_clean_list(['a &amp; b', '  ', NULL, '<br>', 'c'])").fetchone()[0] == ["a & b", "c"]
+    assert con.execute("select hm_name_key('Johns Hopkins  University &amp; Co.', 'US')").fetchone()[0] == "johns hopkins university co|us"
+    return f"{len(cases)} hm_clean cases + hm_dec / hm_clean_list / name_key ok"
+
+
+@case
+def no_html_entities_in_text():
+    ent = "regexp_matches({c}, '&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);')"
+    tag = "regexp_matches({c}, '(?i)</?(?:sub|sup|i|b|em|strong|u|small|span|a|italic|bold|sc|scp|inf|p|br|div|li|ul|ol|h[1-6]|mml:[a-z0-9]+|jats:[a-z0-9-]+)(?:\\s+[a-zA-Z:_-]+\\s*=[^<>]*)?\\s*/?>')"
+    checks = {"projects": ["title", "summary", "keywords", "acronym"], "organisations": ["legalName", "legalShortName", "address_street", "address_city"],
+              "works": ["title", "publisher", "container_name"], "grants": ["id", "description", "funder_name"], "minorities": ["group_name_en"]}
+    checked = 0
+    for table, cols in checks.items():
+        for c in cols:
+            bad = db.execute(f"select count(*) from {pq(table)} where {ent.format(c=c)} or {tag.format(c=c)}").fetchone()[0]
+            assert bad == 0, (table, c, bad)
+            checked += 1
+    for table, c in (("works", "authors"), ("organisations", "alternativeNames"), ("projects", "org_names")):
+        bad = db.execute(f"select count(*) from (select unnest({c}) x from {pq(table)}) where {ent.format(c='x')}").fetchone()[0]
+        assert bad == 0, (table, c, bad)
+        checked += 1
+    # the api publishers list is built from the same cleaned values as works.publisher
+    pubs = {p for p, _ in PUBLISHERS}
+    indexed = {r[0] for r in db.execute(f"select distinct publisher from {pq('works')} where publisher is not null").fetchall()}
+    assert pubs <= indexed, list(pubs - indexed)[:5]
+    return f"{checked} text fields free of entities and whitelisted tags; api publishers list is a subset of the indexed publisher values"
 
 
 @case

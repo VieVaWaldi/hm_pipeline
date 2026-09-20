@@ -2,7 +2,7 @@
 -- D32 (open): Manx / Russians / Turkish look like keyword false positives; ranking puts the seed groups first, groups without project last.
 COPY (
 WITH pm AS (
-    SELECT p.id AS pid, unnest(pmq.minority_qid) AS qid, hm_clean(p.title) AS title, p.acronym, p.pred, p.is_ch, pt.topic_id::VARCHAR AS topic_id
+    SELECT p.id AS pid, unnest(pmq.minority_qid) AS qid, hm_clean(p.title) AS title, hm_clean(p.acronym) AS acronym, p.pred, p.is_ch, pt.topic_id::VARCHAR AS topic_id
     FROM project p JOIN p_minority pmq ON pmq.pid = p.id LEFT JOIN p_topic pt ON pt.pid = p.id   -- p_minority: stored tags or the optional override
 ), agg AS (
     SELECT qid, count(*)::INTEGER AS project_count, (count(*) FILTER (is_ch))::INTEGER AS dch_project_count,
@@ -18,7 +18,8 @@ WITH pm AS (
     SELECT pm.qid, count(DISTINCT r.target)::INTEGER AS work_count
     FROM pm JOIN relation r ON r.source = pm.pid AND r.sourceType = 'project' AND r.targetType = 'product' GROUP BY pm.qid
 )
-SELECT m.*, len(coalesce(m.known_subgroups, [])) > 0 AS has_subgroups,
+SELECT m.* REPLACE (hm_clean(m.group_name_en) AS group_name_en, hm_clean_list(m.search_keywords) AS search_keywords),  -- Wikidata text: no entities found in the 278 rows, applied for safety
+       len(coalesce(m.known_subgroups, [])) > 0 AS has_subgroups,
        coalesce(agg.project_count, 0) AS project_count, coalesce(agg.dch_project_count, 0) AS dch_project_count,
        coalesce(oc.org_count, 0) AS org_count, coalesce(wk.work_count, 0) AS work_count,
        list_transform(coalesce(tc.topic_counts, []), lambda x: x.topic_id) AS topic_ids,

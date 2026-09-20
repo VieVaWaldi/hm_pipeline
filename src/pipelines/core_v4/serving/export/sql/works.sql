@@ -17,10 +17,10 @@ WITH wp AS (
     FROM relation WHERE sourceType = 'product' AND targetType = 'organization' AND source % {N} = {K}
     GROUP BY source
 )
-SELECT w.id::VARCHAR AS id, replace(w.title, '&amp;', '&') AS title,
-       list_transform(w.authors[1:20], lambda a: a.fullName) AS authors, len(coalesce(w.authors, []))::INTEGER AS author_count,
+SELECT w.id::VARCHAR AS id, hm_clean(w.title) AS title,                                   -- D27: entities (x2), whitelisted tags, whitespace
+       list_transform(w.authors[1:20], lambda a: hm_dec(a.fullName)) AS authors, len(coalesce(w.authors, []))::INTEGER AS author_count,
        w.publicationDate AS publication_date, hm_year(w.publicationDate) AS year,
-       w.publisher, w.container.name AS container_name, w.openAccessColor AS open_access_color,
+       hm_clean(w.publisher) AS publisher, hm_clean(w.container.name) AS container_name, w.openAccessColor AS open_access_color,
        w.bestAccessRight.label AS best_access_right, hm_lang(w.language.code) AS language,
        w.citationCount::INTEGER AS citation_count,
        wk_doi_any(w.pids, w.instances) AS doi, wk_pdf_url(w.instances) AS pdf_url, wk_landing_url(w.pids, w.instances) AS landing_url,

@@ -2,9 +2,9 @@
 -- Dropped on purpose: granted.totalCost (0 for 98.8%), raw granted struct (replaced by currency / funded_amount / funded_amount_eur).
 COPY (
 SELECT
-    p.id::VARCHAR AS id, p.openaireId, p.grantId, hm_clean(p.title) AS title, p.acronym, p.websiteUrl,
+    p.id::VARCHAR AS id, p.openaireId, p.grantId, hm_clean(p.title) AS title, hm_clean(p.acronym) AS acronym, p.websiteUrl,
     p.startDate, p.endDate, hm_year(p.startDate) AS year, p.callIdentifier, hm_clean(p.keywords) AS keywords,
-    p.openAccessMandateForPublications, p.openAccessMandateForDataset, p.subjects,
+    p.openAccessMandateForPublications, p.openAccessMandateForDataset, hm_clean_list(p.subjects) AS subjects,
     -- overview shows the raw fundings; ids/names/descriptions are unescaped (D27)
     list_transform(coalesce(p.fundings, []), lambda f: {'fundingStream': {'description': hm_clean(f.fundingStream.description),
                    'id': hm_clean(f.fundingStream.id)}, 'jurisdiction': f.jurisdiction, 'name': hm_clean(f.name), 'shortName': f.shortName}) AS fundings,

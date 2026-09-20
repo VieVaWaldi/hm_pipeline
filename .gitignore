@@ -1,6 +1,6 @@
 ### Custom ignores ###
 
-serving/agent_job/out
+src/pipelines/core_v4/serving/agent_job/out/
 core_v2_geolocations.duckdb
 .mcp.json
 .vscode/

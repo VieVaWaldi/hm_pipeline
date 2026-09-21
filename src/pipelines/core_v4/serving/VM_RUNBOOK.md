@@ -80,5 +80,28 @@ uv run --frozen --only-group serving python load.py --parquet ~/serving_export -
 - Optional faster restore: an OpenSearch filesystem snapshot (needs `path.repo` in the opensearch config = container restart) after the successful load. Only worth it if the load took many hours.
 - Tell the app team (heritagemonitor phase, later): index/alias names `projects organisations works minorities grants`, basic-auth env vars, `api/topics.json` and `api/publishers.json` (copy them into the api, they are the in-memory topic tree and publisher typeahead sources).
 
+## 7b. Keeping the indexes warm (HDD) and the RAM budget (measured 2026-09-21)
+- Smoke results: after the merges the WARM latencies are excellent (collaboration 5-15 ms agg, 160-190 ms for the 2000-project query network); the very first call after a fresh state was 24-30 s (query network) and 4.6 s (500 org docs).
+  A container restart only clears OpenSearch's own caches; the Linux page cache survives it, so `vm_smoke.py --runs 1` right after a restart still shows warm numbers (181-186 ms). A VM reboot or heavy works traffic that evicts
+  the projects/organisations pages brings the cold behaviour back. Budget: the container has 24g (12g heap + ~12g page cache); works 18 GB + projects 5.6 GB + organisations 0.6 GB = 24 GB of index files, so they compete.
+- Keep the collaboration-critical indexes (projects + organisations = 6.2 GB) resident: warm them at boot and every 30 min by reading their files inside the container (the page cache is charged to the container):
+```bash
+cat > ~/warm_os.sh <<'EOF'
+#!/bin/bash
+source ~/.os_env
+for idx in projects organisations; do
+  uuid=$(curl -s -u "admin:$PW" "localhost:9200/_cat/indices/$idx?h=uuid" | tr -d ' \n')
+  docker exec hm-opensearch sh -c "find /usr/share/opensearch/data/nodes/0/indices/$uuid -type f -exec cat {} + > /dev/null"
+done
+EOF
+chmod +x ~/warm_os.sh && ~/warm_os.sh            # ~6 GB sequential read, about a minute on the HDD
+( crontab -l 2>/dev/null; echo '*/30 * * * * ~/warm_os.sh' ) | crontab -
+```
+  Also do it after any VM reboot / container restart. Only projects + organisations: warming works would evict them.
+- If `docker stats hm-opensearch` shows the cache is too small: lower the OpenSearch heap from 12g to 10g (peak heap in the smoke run was 6.5 GiB) rather than raising the container limit.
+- Host budget (31 GB): caddy 128m + web 768m + api 1g + postgres 512m + opensearch 24g = 26.4 GB of limits. The api holds reference data in memory (topics, publishers, an org table of 494k rows stored compactly, blank-page caches): plan for a
+  compact table (~60-120 MB); recommended: api `mem_limit: 1536m` with `NODE_OPTIONS=--max-old-space-size=1152`, opensearch heap 10g / `mem_limit: 23g` (total ~25.9 GB, ~5 GB left for the OS).
+- The blank-query funding map (top 500 orgs over all projects) is the one slow query (1.1 s cold): the api caches it.
+
 ## 8. Open questions to answer on the VM (Section 1 and 2)
 1. Does `hm-opensearch` currently hold indices (name clashes)? 2. Is uv/PyPI reachable? 3. Site traffic window? 4. Keep heap at 12g / limit 24g (recommended by `PRODUCTION.md`; the local agent's suggestion of 8g is unmeasured) - change only if `vm_smoke.py` shows page-cache pressure. 5. Is `plugins.security.ssl.http.enabled=false` really giving plain http (the compose marks it "UNVERIFIED"): `curl -u admin:$PW http://localhost:9200` must answer.

@@ -9,9 +9,10 @@ import argparse
 import json
 from pathlib import Path
 
-# prod shard plan (D-topology): works 4 (HDD: fewer shards = fewer random reads, still 4 threads per query), projects 2, rest 1.
+# prod shard plan (D-topology): works 4 (HDD: fewer shards = fewer random reads, still 4 threads per query), projects 1 (user decision 2026-09-21: 3.9M docs / ~8 GB is fine
+# for one Lucene shard and every facet/terms count is EXACT with a single shard; fallback if the aggs are too slow on the VM: projects=2 + shard_size 500), rest 1.
 # The laptop test uses 1 everywhere (--shards works=1,projects=1 in load.py).
-PROD_SHARDS = {"works": 4, "projects": 2, "organisations": 1, "minorities": 1, "grants": 1}
+PROD_SHARDS = {"works": 4, "projects": 1, "organisations": 1, "minorities": 1, "grants": 1}
 # title.sayt (project title autocomplete, user wants it): max_shingle_size 3 -> 2 shrinks it, see SERVING_DESIGN.md section 6 for the measurement
 TITLE_SHINGLE = 3
 

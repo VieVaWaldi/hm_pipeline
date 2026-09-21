@@ -74,7 +74,7 @@ uv run --frozen --only-group serving python load.py --parquet ~/serving_export -
 # works last (long): 4 shards, best_compression, refresh -1 while loading. Run inside tmux/nohup; safe to interrupt and rerun (resumes per file).
 nohup uv run --frozen --only-group serving python load.py --parquet ~/serving_export --host 127.0.0.1 --port 9200 --only works --threads 4 > ~/load_works.log 2>&1 &
 ```
-What `load.py` does per index: create (mapping from `mappings.py`, prod shard counts works 4 / projects 2 / others 1, replicas 0, refresh -1) -> bulk each Parquet file with `parallel_bulk`
+What `load.py` does per index: create (mapping from `mappings.py`, prod shard counts works 4 / projects 1 / others 1, replicas 0, refresh -1) -> bulk each Parquet file with `parallel_bulk`
 -> restore refresh 30 s -> refresh -> forcemerge to 1 segment per shard (`--no-forcemerge` to skip, `--segments N`) -> verify the doc count against the Parquet metadata (exit code 1 on mismatch).
 Useful flags: `--recreate` (drop and rebuild), `--suffix _v1` (build `<name>_v1` and switch the alias `<name>` at the end = rebuild without downtime), `--threads/--chunk` (tune bulk),
 `--finalize-only` (only refresh/forcemerge/verify after an interrupted run), `--title-shingle 2` (smaller project title autocomplete), `--shards works=1` (laptop tests).

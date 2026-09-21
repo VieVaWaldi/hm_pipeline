@@ -8,7 +8,7 @@ done on the VM: `export/vm_smoke.py` was written for that and tested on the samp
 | | |
 |---|---|
 | OpenSearch | container `infra-opensearch-1`, `localhost:9201`, OpenSearch 3.8.0, **heap 2 GB** (`OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g`), security disabled, container left running |
-| Indices (empty prefix) | `projects` 25,797 docs (2 shards), `organisations` 28,137 (1), `works` 28,653 (4), `minorities` 278 docs (299 in `_cat`: nested subgroup docs), `grants` 6,119 (1); replicas 0; ~150 MB in total |
+| Indices (empty prefix) | `projects` 25,797 docs (1 shard), `organisations` 28,137 (1), `works` 28,653 (4), `minorities` 278 docs (299 in `_cat`: nested subgroup docs), `grants` 6,119 (1); replicas 0; ~150 MB in total |
 | Sample data | `data/serving_export_sample/` (23 MB, git-ignored via `/data`), same layout and schema as `data/serving_export/`, plus `sample_manifest.json` |
 | Untouched | heritagemonitor and its OpenSearch on 9200 (and volume `heritagemonitor_os-data`), `data/serving_export/` (the 7.8 GB real export, read-only) |
 | Free disk | 272 GiB at the start, 277-282 GiB during the partial full load, 280 GiB now (nothing is above the 60 GiB floor) |
@@ -38,7 +38,7 @@ Rebuild: `.venv-serving/bin/python src/pipelines/core_v4/serving/export/build_sa
 - **`vm_smoke.py`** on the sample: 51 checks, 0 errors, 0 red flags. **Latencies on the sample are NOT representative** (25-30k docs per index, everything in the page cache); they only prove the checks run.
 
 ## 4. Findings and changes made (all under `export/`, nothing committed)
-1. **Approximate facet counts with 2+ shards** (real finding). Projects have 2 shards, works 4; a terms aggregation with the default `shard_size` (size*1.5+10) returns slightly too low counts:
+1. **Approximate facet counts with 2+ shards** (real finding). Projects had 2 shards when this was measured (now 1, so exact) and works have 4; a terms aggregation with the default `shard_size` (size*1.5+10) returns slightly too low counts:
    topic facet size 50 on three queries: 4-5 of 50 counts 1-2 too low (`doc_count_error_upper_bound` 2-6); with `shard_size: 500` all exact (bound 0). Fixed with `queries.terms_agg()` (shard_size = max(10*size, 500))
    used by every facet / experts / org-network / funding aggregation and by the tests. **The api (heritagemonitor) must send `shard_size` on its facet aggregations too.**
 2. **`eager_global_ordinals: true` on `projects.org_ids`**: mapping update accepted, experts / org-network / funding aggregation results identical before and after. Set in `mappings.py` (and `mappings/projects.json`) so a fresh
@@ -60,7 +60,7 @@ Rebuild: `.venv-serving/bin/python src/pipelines/core_v4/serving/export/build_sa
   shows on the 30 GB works index, try 8g heap (leaves ~16 GB of the container as page cache). Measure with `vm_smoke.py` before and after.
 - **Loader:** projects/orgs loaded at 9.5-12k docs/s with `--threads 4 --chunk 1000` on an SSD laptop with throttled merges. On the HDD start with `--threads 4 --chunk 1000` for the small indexes and `--threads 2..4` for works; watch for 429s
   (lower `--threads` / `--chunk 500`). Keep `refresh -1` during the load and the forcemerge at the end (the loader does both). `index.merge.scheduler.max_thread_count: 1` is already set for the HDD.
-- **Shards:** works 4 / projects 2 / others 1 stay (mappings.py); replicas 0.
+- **Shards:** works 4 / **projects 1** / others 1 (mappings.py); replicas 0. Projects = 1 shard gives exact counts; watch the projects aggregation latency on the VM (funding agg over all projects, topic modal): if it is > ~2 s cold, fall back to 2 shards + `shard_size` 500 (`load.py --shards projects=2`).
 - **After the load:** `vm_smoke.py` (all groups, `--runs 15`), then once more right after a container restart with `--runs 1` for the cold global-ordinals and cold-page-cache numbers.
 - **api:** use `shard_size` on facet/network aggregations (finding 1); URLs/ids are strings everywhere.
 

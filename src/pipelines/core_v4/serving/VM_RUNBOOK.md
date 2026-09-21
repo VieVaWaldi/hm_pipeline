@@ -12,13 +12,27 @@ Related: `EXPORT_README.md` (export/load details), `SERVING_DESIGN.md` (decision
 - Old data: 10M works in Postgres ran "slow but usable" on this box; 50M works in OpenSearch will be slower to build than on the laptop (loader speeds measured on an SSD laptop are an upper bound).
 
 ## 1. Preflight (10 min, on the VM)
+**The VM shell has an outbound proxy set** (a `curl localhost:9200` returned a Squid error page): always bypass it for local calls, otherwise every curl (and possibly tools that honour
+`http_proxy`) goes to the proxy instead of OpenSearch. Once per shell: `export NO_PROXY=localhost,127.0.0.1 no_proxy=localhost,127.0.0.1` (or use `curl --noproxy '*'`). Also check that the
+password variable is really set: `echo ${#PW}` must print a number > 0. (Keep the proxy for uv/pip: PyPI needs it.)
 ```bash
+export NO_PROXY=localhost,127.0.0.1 no_proxy=localhost,127.0.0.1
 docker ps --format '{{.Names}} {{.Status}}'                       # hm-opensearch healthy?
 curl -s -u admin:$PW localhost:9200/_cluster/health?pretty         # status, number_of_nodes 1
-curl -s -u admin:$PW 'localhost:9200/_cat/indices?v&bytes=gb'      # VERIFY which indices already exist (a test `minorities`? the load refuses existing names without --recreate)
+curl -s -u admin:$PW 'localhost:9200/_cat/indices?v&bytes=gb'      # known: the VM holds copies of the old test data: `minorities` and `demo_collaboration_edges` (user 2026-09-21)
 df -h / ; free -g ; sysctl vm.max_map_count vm.swappiness ; nproc  # need ~90 GB free in the docker volume location (final ~30 GB, peak while loading/merging ~2x), 5 TB is plenty
 ```
 Decide the **window**: works loading (hours) and forcemerge saturate the HDD; site latency suffers. Prefer night / low traffic. `--threads 4` leaves 4 cores for the site.
+
+### 1b. REMINDER (user asked to be reminded): turn OFF audit logging on the VM before the big load
+The security plugin's audit log is very chatty (on the Mac dev instance: 14 daily `security-auditlog-*` indices, ~5 GB, 5-12M docs/day). On an HDD box that is wasted I/O, and it competes with the works load.
+Two ways (**VERIFY** which one works with this image; the REST one needs no restart):
+```bash
+# (a) REST, dynamic, no restart: disable the audit log (admin cert/permissions permitting)
+curl --noproxy '*' -s -u admin:$PW -X PUT 'localhost:9200/_plugins/_security/api/audit/config' -H 'Content-Type: application/json' -d '{"enabled": false}'
+# (b) static, needs a container restart: in opensearch.yml (mounted config) set   plugins.security.audit.type: noop
+```
+Afterwards: `curl --noproxy '*' -s -u admin:$PW 'localhost:9200/_cat/indices/security-auditlog*?v&bytes=mb'` must stop growing; old `security-auditlog-*` indices can be deleted to free disk.
 
 ## 2. Code and dependencies on the VM
 - `git clone` / `git pull` hm_pipeline (same commit as the export). Only the light group is needed (duckdb, pyarrow, opensearch-py, no torch):
@@ -41,7 +55,10 @@ cd ~/hm_pipeline/src/pipelines/core_v4/serving/export
 uv run --frozen --only-group serving python load.py --parquet ~/serving_export --host 127.0.0.1 --port 9200 --only organisations,minorities,grants,projects
 ```
 - Expected: minorities/grants seconds, organisations minutes, projects roughly 15-40 min on the HDD (3.9M docs, 2 shards, title autocomplete). Uses refresh -1 while loading, then restores 30 s, refresh, forcemerge, count check (exit code 1 on mismatch).
-- Existing index of the same name: use `--recreate` (drops it) or `--suffix _v1` (build `<name>_v1`, switch alias `<name>` at the end; fails if a concrete index `<name>` exists, so drop/rename that first). **Decide before running**; the alias route allows rebuilds without downtime later.
+- Existing index of the same name: the old test `minorities` (copy of the Mac dev one, test data) **may be overwritten, breaking the current minorities page is accepted (user 2026-09-21)**:
+  load it with `--recreate` (drops and rebuilds). `demo_collaboration_edges` has a different name and is left alone. For the other indices (empty names) a plain first load is fine; for later rebuilds without
+  downtime use `--suffix _v2` + alias switch (this fails while a concrete index of the alias name exists, so the first load has to be a plain one).
+- Projects now have **1 shard** (exact facet counts; decision 2026-09-21). If `vm_smoke.py` shows the projects aggregations > ~2 s cold, the fallback is 2 shards + `shard_size` 500 (rebuild of projects only, ~30 min).
 - Verify: counts organisations 494,099, projects 3,893,065, minorities 278, grants 6,119; 3 sample searches (`curl` or the local checks).
 
 ## 5. Load works (long): tmux/nohup, resumable

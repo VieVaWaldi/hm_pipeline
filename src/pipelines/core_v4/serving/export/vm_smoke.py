@@ -18,6 +18,10 @@ Useful flags:
     --set-eager-ordinals             PUT projects mapping org_ids eager_global_ordinals=true first (a fresh load from mappings.py already has it)
     --no-clear                       do not clear caches before each check
 Exit code 1 if a check errors (red-flag latencies alone do not fail the run, read the table).
+
+WATCH ON THE VM: `projects` is ONE shard (exact facet counts, no shard_size needed), so every projects aggregation runs on a single thread over 3.9M docs. The checks to watch are the
+funding agg over ALL projects (blank query), the topic modal counts, the blank-query facets and the experts agg over all projects. If any of them is > ~2 s cold, the fallback is
+2 shards + shard_size 500 (`load.py --shards projects=2 --recreate`, `queries.terms_agg()` already sends shard_size).
 """
 import argparse
 import json
@@ -263,6 +267,11 @@ for r in rows:
         red.append(r)
     print(f"| {r['check']}{flag} | {r['first']:.0f} | {r['p50']:.0f} | {r['p95']:.0f} | {r['max']:.0f} | {r['note']} |")
 print(f"\n{len(rows)} checks, {len(red)} red flag(s) (> {args.red_ms:.0f} ms p50/p95 or error), {errors} error(s)")
+slow = [r for r in rows if r["check"].startswith("P ") and (("funding map: blank" in r["check"]) or ("topic modal" in r["check"]) or ("blank query" in r["check"])) and r["first"] > 2000]
+if slow:
+    print("PROJECTS IS 1 SHARD: these aggregations were > 2 s cold -> consider 2 shards + shard_size 500 (load.py --shards projects=2 --recreate):")
+    for r in slow:
+        print(f"  {r['check']}  first {r['first']:.0f} ms")
 for r in red:
     print(f"  RED: {r['check']}  first {r['first']:.0f} / p50 {r['p50']:.0f} / p95 {r['p95']:.0f} ms  {r['note'][:100]}")
 if args.json:

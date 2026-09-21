@@ -185,7 +185,7 @@ def topic_modal_aggs() -> dict:
 
 
 def terms_agg(field: str, size: int, shard_size: int | None = None, **kw) -> dict:
-    """terms agg for facets/networks with an EXPLICIT shard_size. With 2+ shards (projects: 2, works: 4) the default shard_size (size*1.5+10) makes the
+    """terms agg for facets/networks with an EXPLICIT shard_size. With 1 shard (projects, since 2026-09-21) counts are exact and shard_size is a no-op; with 2+ shards (works: 4, or projects if it is ever raised) the default shard_size (size*1.5+10) makes the
     counts approximate: measured on the real-data sample, 5 of 50 topic counts were 1-2 too low; shard_size 500 made them exact (error bound 0).
     The extra shard work is tiny (a few hundred buckets per shard). Use this helper for every facet / experts / network / funding aggregation."""
     return {"terms": {"field": field, "size": size, "shard_size": shard_size or max(size * 10, 500), **kw}}

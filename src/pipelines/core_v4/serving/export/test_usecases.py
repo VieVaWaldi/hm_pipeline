@@ -134,6 +134,9 @@ def projects_search_facets():
     duck = dict(db.execute(f"select topic_id, count(*) from {pq('projects')} where id in ({','.join(repr(i) for i in ids) or 'null'}) group by 1").fetchall())
     got = {b["key"]: b["doc_count"] for b in r["aggregations"]["topics"]["buckets"]}
     assert all(duck[k] == v for k, v in got.items()), "topic agg != duckdb"
+    # projects is 1 shard: the PLAIN terms agg (default shard_size, no terms_agg helper) must already be exact
+    plain = es.search(index=IX["projects"], body={**projects_body(WORD, size=0, year=(2010, 2030)), "aggs": {"t": {"terms": {"field": "topic_id", "size": 50}}}})["aggregations"]["t"]
+    assert plain["doc_count_error_upper_bound"] == 0 and all(duck[b["key"]] == b["doc_count"] for b in plain["buckets"]), "plain terms agg not exact on 1 shard"
     counts = [b["doc_count"] for b in r["aggregations"]["topics"]["buckets"]]
     assert counts == sorted(counts, reverse=True)
     r2, ms2 = search("projects", projects_body(WORD, sort="budget", year=(2010, 2030), theme=None, corpus="DCH"))

@@ -97,7 +97,7 @@ Spot-checked against the raw ECB xml on 2026-09-20 (USD, GBP, SEK, CHF, NOK, AUD
 ## 4. Index topology (top level)
 | Index | Docs | Purpose |
 |---|---|---|
-| `projects` | 3.9M | search, facets, experts, collaboration, funding map. 2 shards. |
+| `projects` | 3.9M | search, facets, experts, collaboration, funding map. **1 shard** (user decision 2026-09-21: exact facet counts, ~8 GB is fine for one shard; fallback 2 shards + `shard_size` 500 if the aggs are slow on the VM). |
 | `organisations` | 494k | search, autocomplete, overview, geo. 1 shard. |
 | `works` | 50M | plain text search + overview. No facets. Sharded (start 4-6, decide from prototype). |
 | `minorities` | 278 | search, facets, map. 1 shard. |
@@ -173,7 +173,7 @@ Output layout: `projects/projects.parquet`, `organisations/organisations.parquet
 `api/publishers.json`, `export_manifest.json`. Index names in prod: `projects organisations works minorities grants` (loader `--prefix`/`--suffix _v1` for alias swaps).
 
 ### 6.2 Doc shapes (keyword unless noted; `[]` = array; all ids are strings)
-- **projects** (3.89M, 2 shards, default codec): `id, openaireId*, grantId, doi*, title (text + title.sayt), acronym (text + .sayt + .keyword), summary (text), keywords (text),
+- **projects** (3.89M, 1 shard, default codec): `id, openaireId*, grantId, doi*, title (text + title.sayt), acronym (text + .sayt + .keyword), summary (text), keywords (text),
   subjects*, websiteUrl*, callIdentifier, startDate (date), endDate*, year (int, NULL outside 1950..2040), fundings* (object, cleaned), frameworkProgrammes[],
   currency, funded_amount, funded_amount_eur, funded_eur_per_org (double), is_translated, is_ch (bool), pred* (display only), minority_qids[], pillars (byte),
   pillar_list[], theme, topic_id/subfield_id/field_id/domain_id (nullable), org_ids[] (coordinators first), org_names[] (text, positions), org_regions[]
@@ -239,7 +239,7 @@ What was measured before it was stopped (details and commands in `LOCAL_LOAD_REP
 | Index | real result | vs estimate |
 |---|---|---|
 | organisations (all 494,099, forcemerged) | **1.29 GB** primary store (2.6 KB/doc), 11.9k docs/s, forcemerge 38 s | estimate 0.6-0.75 GB was **too low** (~1.8x); still tiny |
-| projects (partial: 1.17M of 3.89M docs, not forcemerged, 2 shards) | 2.6 GB (2.2 KB/doc) -> ~8.6 GB unmerged at 3.9M | estimate 6.9 GB; treat 7-9 GB as the range |
+| projects (partial: 1.17M of 3.89M docs, not forcemerged, loaded with 2 shards at the time) | 2.6 GB (2.2 KB/doc) -> ~8.6 GB unmerged at 3.9M | estimate 6.9 GB; treat 7-9 GB as the range |
 | works | not loaded at full scale | 20-26 GB estimate stands (sample: 498 B/doc) |
 Loading is throttled by segment merging ("segment writing can't keep up") at ~9.5k docs/s for projects with a 2 GB heap.
 **Laptop test data = a coherent sample** (`export/build_sample.py`, output `data/serving_export_sample/`, git-ignored): 25,797 projects (5.6k DCH, 5.0k minority-tagged, all 2,123 projects of one collaborative anchor org,
@@ -247,7 +247,7 @@ one 797-works project), 28,137 organisations (every org referenced by a sampled 
 Links are filtered to the sample (no dangling ids), denormalised counts keep their FULL values. Latencies on it are NOT representative; it is for correctness. `export/vm_smoke.py` runs the full-scale checks on the VM.
 
 ### 6.3c Findings from the sample run (fixed unless noted)
-1. **Facet counts are approximate with 2+ shards unless `shard_size` is set** (projects 2 shards, works 4): with the default (`size*1.5+10`) 4-5 of 50 topic counts were 1-2 too low
+1. **Facet counts are approximate with 2+ shards unless `shard_size` is set** (works 4; projects were 2 shards when this was measured and are 1 shard now, so their counts are exact and `shard_size` is a no-op there): with the default (`size*1.5+10`) 4-5 of 50 topic counts were 1-2 too low
    (error bound 2-6); with `shard_size` 500 all exact, bound 0. Fixed: `queries.terms_agg()` (shard_size = max(10*size, 500)) is used for every facet / experts / org-network / funding aggregation. The api must use it too.
 2. **`eager_global_ordinals: true` on `projects.org_ids`** (aggregated by experts / networks / funding): identical results before/after (correctness verified); the speed effect only shows at scale. Now in `mappings.py`
    (+ `mappings/projects.json`); measure on the VM: restart, then `vm_smoke.py --runs 1 --only "experts,org network,funding"`.

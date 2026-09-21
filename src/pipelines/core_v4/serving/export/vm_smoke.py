@@ -12,11 +12,13 @@ the OS page cache is NOT dropped, for a really cold disk read restart the contai
 remaining runs, (3) RED FLAGS: anything with p50 or p95 above --red-ms (default 1000 ms) or an error.
 
 Useful flags:
-    --groups projects,works,misc     run only some groups (misc = organisations, grants, minorities)
+    --groups projects,works,misc,count  run only some groups (misc = organisations, grants, minorities; count = the `_count` checks behind the UI's "about N projects")
     --only "experts,org network"     run only checks whose name contains one of these substrings
     --runs 1                         first-call latencies only (do this right after a container restart to measure the cold global-ordinals cost on org_ids)
     --set-eager-ordinals             PUT projects mapping org_ids eager_global_ordinals=true first (a fresh load from mappings.py already has it)
     --no-clear                       do not clear caches before each check
+`_count` section: the api fires a parallel `POST /<index>/_count` (same query + filters, no aggs, no sort) when a search hits the 10,000 total cap, with a 1200 ms client timeout;
+above it the UI falls back to "10,000+". Those checks are marked RED when any single call (first or max) exceeds 1200 ms (fixed, independent of --red-ms).
 Exit code 1 if a check errors (red-flag latencies alone do not fail the run, read the table).
 
 WATCH ON THE VM: `projects` is ONE shard (exact facet counts, no shard_size needed), so every projects aggregation runs on a single thread over 3.9M docs. The checks to watch are the
@@ -41,7 +43,7 @@ ap.add_argument("--port", type=int, default=9200)
 ap.add_argument("--ssl", action="store_true")
 ap.add_argument("--prefix", default="")
 ap.add_argument("--runs", type=int, default=15)
-ap.add_argument("--groups", default="projects,works,misc")
+ap.add_argument("--groups", default="projects,works,misc,count")
 ap.add_argument("--only", default="")
 ap.add_argument("--red-ms", type=float, default=1000.0)
 ap.add_argument("--json", default="")
@@ -56,6 +58,7 @@ IX = lambda n: args.prefix + n  # noqa: E731
 GROUPS = set(args.groups.split(","))
 ONLY = [x for x in args.only.split(",") if x]
 rows, errors = [], 0
+COUNT_TIMEOUT_MS = 1200.0  # client timeout of the api's parallel _count; above it the UI shows "10,000+" instead of "about N"
 
 
 def s(index, body):
@@ -257,15 +260,36 @@ if "misc" in GROUPS:
     bench("M projects of a minority (Sami) + facets", lambda: hits(s("projects", projects_body("", size=10, minority="Q48199", aggs=FACETS))))
     bench("M works of a minority (Sami, tier-0 proxy)", lambda: hits(s("works", works_body("", size=10, minority="Q48199"))))
 
+if "count" in GROUPS:
+    print("== _count (approximate totals) ==")
+
+    def cnt(index, query):
+        return lambda: f"{es.count(index=IX(index), body={'query': query})['count']:,} counted"
+
+    bench("C works blank (match_all)", cnt("works", works_body("")["query"]))
+    bench(f"C works common word ({WCOMMON!r})", cnt("works", works_body(WCOMMON)["query"]))
+    bench(f"C works mid word ({WMID!r})", cnt("works", works_body(WMID)["query"]))
+    bench("C works DCH proxy (is_ch_via_project) + common word", cnt("works", works_body(WCOMMON, corpus="DCH")["query"]))
+    bench("C works year range + oa filter + common word", cnt("works", works_body(WCOMMON, year=(2000, 2030), oa="gold")["query"]))
+    bench("C projects blank", cnt("projects", projects_body("")["query"]))
+    bench(f"C projects common word ({COMMON!r})", cnt("projects", projects_body(COMMON)["query"]))
+    bench("C projects DCH corpus (is_ch)", cnt("projects", projects_body("", corpus="DCH")["query"]))
+    bench("C projects common word + year range", cnt("projects", projects_body(COMMON, year=(2010, 2030))["query"]))
+    bench("C organisations blank", cnt("organisations", orgs_body("")["query"]))
+    bench("C organisations 'university' (autocomplete-style text)", cnt("organisations", org_autocomplete_body("university")["query"]))
+
 # ---- report ---------------------------------------------------------------------------------------------------------------------------------
 print("\n| check | first ms | p50 ms | p95 ms | max ms | note |\n|---|---|---|---|---|---|")
 red = []
 for r in rows:
     flag = ""
-    if r["note"].startswith("ERROR") or r["p50"] > args.red_ms or r["p95"] > args.red_ms:
+    is_count = r["check"].startswith("C ")
+    if r["note"].startswith("ERROR") or (r["max"] > COUNT_TIMEOUT_MS or r["first"] > COUNT_TIMEOUT_MS if is_count else r["p50"] > args.red_ms or r["p95"] > args.red_ms):
         flag = " **RED**"
         red.append(r)
     print(f"| {r['check']}{flag} | {r['first']:.0f} | {r['p50']:.0f} | {r['p95']:.0f} | {r['max']:.0f} | {r['note']} |")
+if any(r["check"].startswith("C ") for r in rows):
+    print(f"\nNote: C rows are RED above {COUNT_TIMEOUT_MS:.0f} ms for a single _count (first or max): that is the api's client timeout, so the UI then shows '10,000+' instead of 'about N'.")
 print(f"\n{len(rows)} checks, {len(red)} red flag(s) (> {args.red_ms:.0f} ms p50/p95 or error), {errors} error(s)")
 slow = [r for r in rows if r["check"].startswith("P ") and (("funding map: blank" in r["check"]) or ("topic modal" in r["check"]) or ("blank query" in r["check"])) and r["first"] > 2000]
 if slow:

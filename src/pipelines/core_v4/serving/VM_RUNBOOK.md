@@ -73,6 +73,7 @@ uv run --frozen --only-group serving python load.py --parquet ~/serving_export -
 ## 6. Verify on the VM
 - Doc counts (table in `EXPORT_README.md`), `_cluster/health` yellow/green (replicas 0 -> green), shard sizes (`_cat/shards?v`), `refresh_interval` restored to 30s, `number_of_replicas` 0.
 - Full-scale smoke and latency table: `python vm_smoke.py --host 127.0.0.1 --port 9200` (from the local agent; prints cold/warm latencies for: typo fallback on works, big-org aggregations, funding agg over all projects, first-query global ordinals on `org_ids`, biggest-project works tab). **Run it twice** (cold vs warm page cache); on an HDD the first run after a load/restart is slow.
+- The `== _count (approximate totals) ==` section times the api's parallel `_count` (works/projects/organisations, blank/word/filter variants); a single `_count` above 1200 ms (first or max) is RED = the api times out and the UI falls back to '10,000+' instead of 'about N'.
 - Red flags to act on: works typo fallback > 2 s (lower `max_expansions`/threshold or disable the fallback for works), `org_ids` first query > 3 s (set `eager_global_ordinals` on `org_ids`), heap > 85%.
 
 ## 7. Backup / rebuild / rollback
@@ -91,7 +92,7 @@ cat > ~/warm_os.sh <<'EOF'
 source ~/.os_env
 for idx in projects organisations; do
   uuid=$(curl -s -u "admin:$PW" "localhost:9200/_cat/indices/$idx?h=uuid" | tr -d ' \n')
-  docker exec hm-opensearch sh -c "find /usr/share/opensearch/data/nodes/0/indices/$uuid -type f -exec cat {} + > /dev/null"
+  docker exec hm-opensearch sh -c "cat /usr/share/opensearch/data/nodes/0/indices/$uuid/*/index/* > /dev/null"   # the image has no `find`: shell globs
 done
 EOF
 chmod +x ~/warm_os.sh && ~/warm_os.sh            # ~6 GB sequential read, about a minute on the HDD
